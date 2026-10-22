@@ -1,0 +1,20 @@
+{
+  "domain": "radar_pioggia",
+  "name": "Radar pioggia",
+  "codeowners": [
+    "@MarcoGiaco"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "frontend",
+    "http"
+  ],
+  "documentation": "https://github.com/MarcoGiaco/ha-radar-pioggia",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/MarcoGiaco/ha-radar-pioggia/issues",
+  "requirements": [
+    "numpy"
+  ],
+  "version": "0.3.8"
+}

@@ -1,0 +1,65 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Radar pioggia",
+        "description": "Scegli il punto da sorvegliare (di partenza: la posizione di casa impostata in Home Assistant). Il radar viene letto dalla Protezione Civile (Radar-DPC) ogni 5 minuti, con RainViewer come riserva fuori dall'Italia.\n\n{avviso}",
+        "data": {
+          "name": "Nome",
+          "posizione": "Posizione"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Questo punto è già configurato."
+    },
+    "error": {
+      "posizione_predefinita": "Questa è la posizione predefinita di Home Assistant, non quella reale: sposta il punto sulla mappa o imposta la posizione di casa in Impostazioni → Sistema → Generale."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opzioni radar pioggia",
+        "data": {
+          "raggio": "Raggio analizzato",
+          "preavviso": "Preavviso"
+        },
+        "data_description": {
+          "raggio": "Quanti km attorno al punto guardare (20–150).",
+          "preavviso": "\"Pioggia in arrivo\" si accende quando l'arrivo stimato è entro questi minuti."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "pioggia_attuale": {
+        "name": "Pioggia sul punto"
+      },
+      "distanza_pioggia": {
+        "name": "Distanza pioggia"
+      },
+      "arrivo_pioggia": {
+        "name": "Arrivo pioggia"
+      },
+      "spostamento": {
+        "name": "Velocità pioggia"
+      },
+      "pioggia_massima": {
+        "name": "Pioggia più forte"
+      },
+      "ora_radar": {
+        "name": "Ora radar"
+      }
+    },
+    "binary_sensor": {
+      "pioggia_in_arrivo": {
+        "name": "Pioggia in arrivo"
+      },
+      "temporale_vicino": {
+        "name": "Temporale vicino"
+      }
+    }
+  }
+}

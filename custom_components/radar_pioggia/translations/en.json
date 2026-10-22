@@ -1,0 +1,65 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Rain radar",
+        "description": "Pick the point to watch (it starts from the home location set in Home Assistant). Radar data comes from the Italian Civil Protection (Radar-DPC) every 5 minutes, with RainViewer as fallback outside Italy.\n\n{avviso}",
+        "data": {
+          "name": "Name",
+          "posizione": "Location"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This point is already configured."
+    },
+    "error": {
+      "posizione_predefinita": "This is Home Assistant's default location, not a real one: move the point on the map or set the home location in Settings → System → General."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Rain radar options",
+        "data": {
+          "raggio": "Radius",
+          "preavviso": "Lead time"
+        },
+        "data_description": {
+          "raggio": "How many km around the point to analyse (20–150).",
+          "preavviso": "\"Rain incoming\" turns on when the estimated arrival is within this many minutes."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "pioggia_attuale": {
+        "name": "Rain at point"
+      },
+      "distanza_pioggia": {
+        "name": "Rain distance"
+      },
+      "arrivo_pioggia": {
+        "name": "Rain arrival"
+      },
+      "spostamento": {
+        "name": "Rain speed"
+      },
+      "pioggia_massima": {
+        "name": "Strongest rain"
+      },
+      "ora_radar": {
+        "name": "Radar time"
+      }
+    },
+    "binary_sensor": {
+      "pioggia_in_arrivo": {
+        "name": "Rain incoming"
+      },
+      "temporale_vicino": {
+        "name": "Storm nearby"
+      }
+    }
+  }
+}
