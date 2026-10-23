@@ -22,8 +22,8 @@ class RadarEntity(CoordinatorEntity[RadarCoordinator]):
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name=f"Radar pioggia {entry.title}",
-            manufacturer="RainViewer.com",
+            manufacturer="Protezione Civile (Radar-DPC) · RainViewer",
             model="Radar e nowcast",
             entry_type=DeviceEntryType.SERVICE,
-            configuration_url="https://www.rainviewer.com/map.html",
+            configuration_url="https://radar.protezionecivile.it",
         )

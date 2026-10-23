@@ -10,12 +10,12 @@
 //                       # for the theme's plain card background.
 //   bare: true          # no card background, to sit inside another card
 //   zoom: 8             # initial map zoom
-//   tile_url: https://…/{z}/{x}/{y}.png   # other basemap; OpenStreetMap if left out
-//   tile_attribution: "© …"              # credit shown for that basemap
+//   tile_url: https://…/{z}/{x}/{y}.png   # other basemap; if left out, the one
+//   tile_attribution: "© …"              # set in the integration options (OpenStreetMap by default)
 
 const LEAFLET = "https://unpkg.com/leaflet@1.9.4/dist/";
-// Default basemap: OpenStreetMap tiles (tile_url replaces them). In the dark
-// theme they are inverted with a CSS filter.
+// Basemap when the integration does not say one: OpenStreetMap tiles. In the
+// dark theme the tiles are inverted with a CSS filter.
 const BASEMAP = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const MAP_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
 const STEP_MS = 700;
@@ -214,6 +214,7 @@ class RadarPioggiaCard extends HTMLElement {
     }).setView(data.center, this._config.zoom);
     this._limitView();
     this._map.attributionControl.setPrefix(false);
+    this._basemap = data.basemap;
     this._setBasemap(!!this._hass.themes?.darkMode);
     this._center = data.center;
     const HomeControl = L.Control.extend({
@@ -267,11 +268,12 @@ class RadarPioggiaCard extends HTMLElement {
     this._dark = dark;
     this._el.map.classList.toggle("dark", dark);
     if (this._base) return;
-    const custom = this._config.tile_url;
-    this._base = window.L.tileLayer(custom || BASEMAP, {
-      maxZoom: 12,
-      attribution: custom ? this._config.tile_attribution || "" : MAP_ATTRIBUTION,
-    }).addTo(this._map);
+    // The card's own tile_url, else the integration's map, else OpenStreetMap
+    // (with the linked credit Leaflet shows for it).
+    const { tile_url, tile_attribution } = this._config;
+    const url = tile_url || this._basemap?.url || BASEMAP;
+    const attribution = tile_url ? tile_attribution || "" : url === BASEMAP ? MAP_ATTRIBUTION : this._basemap?.attribution || "";
+    this._base = window.L.tileLayer(url, { maxZoom: 12, attribution }).addTo(this._map);
     this._base.bringToBack();
   }
 
@@ -403,7 +405,7 @@ const EDITOR_LABELS = {
   color: "Colore dell'icona e dello sfondo",
   zoom: "Zoom iniziale",
   bare: "Senza sfondo (dentro un'altra scheda)",
-  tile_url: "Mappa di sfondo: indirizzo dei tile (vuoto = OpenStreetMap)",
+  tile_url: "Mappa di sfondo: indirizzo dei tile (vuoto = quella dell'integrazione)",
   tile_attribution: "Mappa di sfondo: crediti da mostrare",
 };
 

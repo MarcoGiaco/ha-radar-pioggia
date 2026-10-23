@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import timedelta
 from typing import Any
 
 from homeassistant.components.binary_sensor import BinarySensorEntity, BinarySensorEntityDescription
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .analysis import RadarResult, compass, intensity_label, rain_rate
+from .analysis import RadarResult, compass, intensity_label, precip_kind, rain_rate
 from .const import CONF_LEAD, DEFAULT_LEAD, STORM_NEAR_KM
 from .coordinator import RadarConfigEntry, RadarCoordinator
 from .entity import RadarEntity
@@ -32,10 +31,10 @@ BINARY_SENSORS: tuple[RadarBinaryDescription, ...] = (
         is_on_fn=lambda r, lead: r.eta_min is not None and 0 < r.eta_min <= lead,
         attrs_fn=lambda r: {
             "minuti": r.eta_min,
-            "ora": (r.time + timedelta(minutes=r.eta_min)).isoformat() if r.eta_min is not None else None,
+            "ora": r.eta_time.isoformat() if r.eta_time else None,
             "intensita": intensity_label(r.eta_dbz),
             "mm_h": rain_rate(r.eta_dbz),
-            "tipo": ("neve" if r.eta_snow else "pioggia") if r.eta_min is not None else None,
+            "tipo": precip_kind(r.eta_snow) if r.eta_min is not None else None,
             "provenienza": compass(r.moving_from),
             "velocita_kmh": r.speed_kmh,
         },

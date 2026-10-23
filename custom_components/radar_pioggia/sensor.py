@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import timedelta
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -17,13 +16,9 @@ from homeassistant.const import UnitOfLength, UnitOfSpeed, UnitOfTime, UnitOfVol
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .analysis import RadarResult, compass, intensity_label, rain_rate
+from .analysis import RadarResult, compass, intensity_label, precip_kind, rain_rate
 from .coordinator import RadarConfigEntry, RadarCoordinator
 from .entity import RadarEntity
-
-
-def _kind(snow: bool) -> str:
-    return "neve" if snow else "pioggia"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -45,7 +40,7 @@ SENSORS: tuple[RadarSensorDescription, ...] = (
         attrs_fn=lambda r: {
             "dbz": r.over_point_dbz,
             "intensita": intensity_label(r.over_point_dbz),
-            "tipo": _kind(r.over_point_snow) if r.over_point_dbz is not None else None,
+            "tipo": precip_kind(r.over_point_snow) if r.over_point_dbz is not None else None,
         },
     ),
     RadarSensorDescription(
@@ -71,11 +66,11 @@ SENSORS: tuple[RadarSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfTime.MINUTES,
         value_fn=lambda r: r.eta_min,
         attrs_fn=lambda r: {
-            "ora": (r.time + timedelta(minutes=r.eta_min)).isoformat() if r.eta_min is not None else None,
+            "ora": r.eta_time.isoformat() if r.eta_time else None,
             "intensita": intensity_label(r.eta_dbz),
             "mm_h": rain_rate(r.eta_dbz),
             "dbz": r.eta_dbz,
-            "tipo": _kind(r.eta_snow) if r.eta_min is not None else None,
+            "tipo": precip_kind(r.eta_snow) if r.eta_min is not None else None,
             "provenienza": compass(r.moving_from),
         },
     ),

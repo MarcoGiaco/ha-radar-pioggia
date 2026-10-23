@@ -25,13 +25,15 @@
           "raggio": "Raggio analizzato",
           "preavviso": "Preavviso",
           "distanza_arrivo": "Distanza di arrivo",
-          "nascondi_deboli": "Nascondi le eco deboli sulla mappa"
+          "nascondi_deboli": "Nascondi le eco deboli sulla mappa",
+          "mappa": "Mappa di sfondo"
         },
         "data_description": {
           "raggio": "Quanti km attorno al punto guardare per distanza, pioggia più forte e mappa (20–150).",
           "preavviso": "\"Pioggia in arrivo\" si accende quando l'arrivo stimato è entro questi minuti.",
           "distanza_arrivo": "La pioggia conta come arrivata quando è entro questi km dal punto (1–30). Vale per \"Arrivo pioggia\" e \"Pioggia in arrivo\".",
-          "nascondi_deboli": "Non colora le eco sotto i 15 dBZ (pioviggine o pioggia che non arriva a terra), nella scheda e nell'immagine Mappa radar. Non cambia avvisi e sensori."
+          "nascondi_deboli": "Non colora le eco sotto i 15 dBZ (pioviggine o pioggia che non arriva a terra), nella scheda e nell'immagine Mappa radar. Non cambia avvisi e sensori.",
+          "mappa": "Lo sfondo dell'immagine Mappa radar e della scheda (se la scheda non ne indica uno suo). I crediti del fornitore compaiono da soli sotto la mappa."
         }
       }
     }
@@ -68,6 +70,14 @@
     "image": {
       "mappa_radar": {
         "name": "Mappa radar"
+      }
+    }
+  },
+  "selector": {
+    "mappa": {
+      "options": {
+        "openstreetmap": "OpenStreetMap",
+        "topografica": "Topografica (OpenTopoMap)"
       }
     }
   }

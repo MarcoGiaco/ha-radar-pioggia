@@ -11,12 +11,12 @@ No Home Assistant imports, so it can be tested on its own. Steps:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import io
 import math
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 from .colors import RAIN, SNOW
 
@@ -218,6 +218,15 @@ class RadarResult:
     # Motion of the rain field, pixels per minute (x east, y south); None if unknown.
     velocity: tuple[float, float] | None = None
 
+    @property
+    def eta_time(self) -> datetime | None:
+        """Estimated arrival time of the rain."""
+        return None if self.eta_min is None else self.time + timedelta(minutes=self.eta_min)
+
+
+def precip_kind(snow: bool) -> str:
+    return "neve" if snow else "pioggia"
+
 
 def _polar(window: Window) -> tuple[np.ndarray, np.ndarray]:
     """Distance (km) and bearing (deg) of every pixel from the point."""
@@ -235,7 +244,9 @@ def _motion(prev: np.ndarray, cur: np.ndarray, minutes: float, km_px: float) -> 
     """
     def coarse(a: np.ndarray) -> np.ndarray:
         n = a.shape[0] // 2 * 2
-        b = np.nan_to_num(a[:n, :n], nan=0)
+        # float64: the summed-area tables below subtract large sums, and in
+        # float32 the rounding can make an energy negative.
+        b = np.nan_to_num(a[:n, :n].astype(np.float64), nan=0)
         b = np.clip(b - 10, 0, None)  # weight by intensity above 10 dBZ
         return b.reshape(n // 2, 2, n // 2, 2).max(axis=(1, 3))
 
@@ -263,10 +274,10 @@ def _motion(prev: np.ndarray, cur: np.ndarray, minutes: float, km_px: float) -> 
             h, w = n - abs(sy), n - abs(sx)
             if h < n // 2 or w < n // 2:
                 continue
-            denom = math.sqrt(energy(sa, ya, xa, h, w) * energy(sb, yb, xb, h, w))
-            if denom == 0:
+            e = energy(sa, ya, xa, h, w) * energy(sb, yb, xb, h, w)
+            if e <= 0:
                 continue
-            score = float(corr[sy, sx]) / denom
+            score = float(corr[sy, sx]) / math.sqrt(e)
             if score > best_score:
                 best, best_score = (sx, sy), score
     if best is None or best_score < 0.3:
@@ -275,21 +286,20 @@ def _motion(prev: np.ndarray, cur: np.ndarray, minutes: float, km_px: float) -> 
 
 
 def analyse(
-    frames: list[Frame],
+    areas: list[Frame],
     window: Window,
     hit_km: float = HIT_KM,
-    areas: list[Frame] | None = None,
     margin: int = 0,
 ) -> RadarResult:
     """Analyse the frames (oldest first) for the point at the window centre.
 
     The rain counts as arrived when it comes within `hit_km` of the point.
-    `areas` are the same frames with `margin` more pixels on every side: the
-    motion and the arrival search use them, so fast rain still outside the
-    window is seen even when none is inside it.
+    The frames cover the window plus `margin` pixels on every side: the
+    motion and the arrival search use all of it, so fast rain still outside
+    the window is seen even when none is inside it.
     """
-    cur = frames[-1]
-    area = areas[-1] if areas else None
+    area = areas[-1]
+    cur = crop_frame(area, margin)
     dist, bearing = _polar(window)
     valid = _echo_mask(cur.dbz, RAIN_DBZ)
 
@@ -323,11 +333,10 @@ def analyse(
     # Motion from the frame ~20 min before (or the oldest available).
     speed = moving_from = None
     vel = None
-    if len(frames) >= 2:
-        first, last = (areas[0], areas[-1]) if areas else (frames[0], cur)
-        minutes = (last.time - first.time).total_seconds() / 60
+    if len(areas) >= 2:
+        minutes = (area.time - areas[0].time).total_seconds() / 60
         if minutes > 0:
-            vel = _motion(first.dbz, last.dbz, minutes, window.km_px)
+            vel = _motion(areas[0].dbz, area.dbz, minutes, window.km_px)
     if vel is not None:
         vx, vy = vel
         speed = math.hypot(vx, vy) * window.km_px * 60
@@ -344,23 +353,21 @@ def analyse(
         eta, eta_dbz = 0, float(np.nanmax(np.where(arrived, cur.dbz, np.nan)))
         eta_snow = bool((cur.snow & arrived).any())
     elif vel is not None:
-        src = area if area is not None else cur
-        src_valid = _echo_mask(src.dbz, RAIN_DBZ) if area is not None else valid
-        centre = window.center + (margin if area is not None else 0)
-        ys, xs = np.nonzero(src_valid)
+        centre = window.center + margin
+        ys, xs = np.nonzero(_echo_mask(area.dbz, RAIN_DBZ) if margin else valid)
         for lead in range(LEAD_STEP_MIN, MAX_LEAD_MIN + 1, LEAD_STEP_MIN):
             px = xs + vel[0] * lead - centre
             py = ys + vel[1] * lead - centre
             hit = np.hypot(px, py) * window.km_px <= hit_km
             if hit.any():
                 eta = lead
-                eta_dbz = float(src.dbz[ys[hit], xs[hit]].max())
-                eta_snow = bool(src.snow[ys[hit], xs[hit]].any())
+                eta_dbz = float(area.dbz[ys[hit], xs[hit]].max())
+                eta_snow = bool(area.snow[ys[hit], xs[hit]].any())
                 break
 
     approaching = eta is not None and eta > 0
-    if not approaching and len(frames) >= 2 and nearest_km is not None:
-        prev_valid = _echo_mask(frames[-2].dbz, RAIN_DBZ)
+    if not approaching and len(areas) >= 2 and nearest_km is not None:
+        prev_valid = _echo_mask(crop_frame(areas[-2], margin).dbz, RAIN_DBZ)
         if prev_valid.any():
             prev_near = float(dist[prev_valid].min())
             approaching = nearest_km < prev_near - 1.5
@@ -451,26 +458,41 @@ def map_tiles(window: Window) -> list[tuple[int, int]]:
     return [(x, y) for y in range(y0 // TILE, y1 // TILE + 1) for x in range(x0 // TILE, x1 // TILE + 1)]
 
 
-def build_basemap(window: Window, tiles: dict[tuple[int, int], bytes | None]) -> Image.Image:
-    """Stitch the base map tiles and crop the window, a bit faded so the rain stands out."""
+def open_tile(blob: bytes | None) -> Image.Image | None:
+    """A base map tile scaled to the 256 px grid (some providers serve 512 px), or None if it is not a picture."""
+    if not blob:
+        return None
+    try:
+        return Image.open(io.BytesIO(blob)).convert("RGB").resize((TILE, TILE))
+    except (OSError, ValueError):
+        return None
+
+
+def build_basemap(window: Window, tiles: dict[tuple[int, int], bytes | None]) -> tuple[Image.Image, bool]:
+    """Stitch the base map tiles and crop the window, a bit faded so the rain stands out.
+
+    Also tells whether every tile was usable.
+    """
     k = 2**MAP_ZOOM_STEP
     keys = map_tiles(window)
     xs = sorted({t[0] for t in keys})
     ys = sorted({t[1] for t in keys})
     canvas = Image.new("RGB", (len(xs) * TILE, len(ys) * TILE), (232, 232, 228))
+    complete = True
     for (tx, ty), blob in tiles.items():
-        if blob:
-            canvas.paste(Image.open(io.BytesIO(blob)).convert("RGB"), ((tx - xs[0]) * TILE, (ty - ys[0]) * TILE))
+        tile = open_tile(blob)
+        if tile is None:
+            complete = False
+        else:
+            canvas.paste(tile, ((tx - xs[0]) * TILE, (ty - ys[0]) * TILE))
     ox, oy = window.x0 * k - xs[0] * TILE, window.y0 * k - ys[0] * TILE
     size = window.size * k
     base = canvas.crop((ox, oy, ox + size, oy + size))
-    return Image.blend(base, Image.new("RGB", base.size, (255, 255, 255)), 0.25)
+    return Image.blend(base, Image.new("RGB", base.size, (255, 255, 255)), 0.25), complete
 
 
 def render_map(basemap: Image.Image, dbz: np.ndarray, snow: np.ndarray, label: str, min_dbz: float = 0) -> bytes:
     """PNG picture of one frame over the base map, with the point marked and a caption."""
-    from PIL import ImageDraw, ImageFont
-
     size = basemap.size[0]
     rain = Image.fromarray(render_rgba(dbz, snow, min_dbz), "RGBA").resize((size, size), Image.Resampling.BILINEAR)
     img = basemap.convert("RGBA")

@@ -7,6 +7,7 @@ from http import HTTPStatus
 from aiohttp import web
 
 from homeassistant.components.http import HomeAssistantView
+from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
@@ -40,11 +41,15 @@ class RadarFramesView(HomeAssistantView):
             {
                 "bounds": coordinator.bounds,
                 "center": [
-                    coordinator.config_entry.data["latitude"],
-                    coordinator.config_entry.data["longitude"],
+                    coordinator.config_entry.data[CONF_LATITUDE],
+                    coordinator.config_entry.data[CONF_LONGITUDE],
                 ],
                 "source": source,
                 "attribution": ATTRIBUTION,
+                "basemap": {
+                    "url": coordinator.basemap_url,
+                    "attribution": coordinator.basemap_attribution,
+                },
                 "frames": [
                     {
                         "time": f.time.isoformat(),

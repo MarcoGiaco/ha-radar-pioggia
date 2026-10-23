@@ -9,7 +9,7 @@ from typing import Any
 import aiohttp
 
 from .analysis import TILE, ZOOM
-from .const import BASEMAP_URL, DPC_API_URL, DPC_TILE_URL, MAPS_URL, USER_AGENT
+from .const import DPC_API_URL, DPC_TILE_URL, MAPS_URL, USER_AGENT
 
 TIMEOUT = aiohttp.ClientTimeout(total=20)
 # RainViewer: Universal Blue colors (the only scheme the free API serves), no smoothing, snow shown apart.
@@ -85,9 +85,19 @@ class RainViewerClient(_Client):
         return await resp.read()
 
 
-class BasemapClient(_Client):
-    """OpenStreetMap tiles for the map picture, downloaded once per point."""
+def tile_url(template: str, z: int, x: int, y: int) -> str:
+    """Address of one base map tile, from a Leaflet-style template.
 
-    async def tile(self, z: int, x: int, y: int) -> bytes | None:
-        resp = await self._get(BASEMAP_URL.format(z=z, x=x, y=y), missing_ok=True)
+    {s} (subdomain) becomes "a" and {r} (retina suffix) is dropped.
+    """
+    for key, value in (("{z}", z), ("{x}", x), ("{y}", y), ("{s}", "a"), ("{r}", "")):
+        template = template.replace(key, str(value))
+    return template
+
+
+class BasemapClient(_Client):
+    """Base map tiles for the map picture, downloaded once per point."""
+
+    async def tile(self, template: str, z: int, x: int, y: int) -> bytes | None:
+        resp = await self._get(tile_url(template, z, x, y), missing_ok=True)
         return None if resp is None else await resp.read()

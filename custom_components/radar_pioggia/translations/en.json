@@ -25,13 +25,15 @@
           "raggio": "Radius",
           "preavviso": "Lead time",
           "distanza_arrivo": "Arrival distance",
-          "nascondi_deboli": "Hide weak echoes on the map"
+          "nascondi_deboli": "Hide weak echoes on the map",
+          "mappa": "Background map"
         },
         "data_description": {
           "raggio": "How many km around the point to analyse for distance, strongest rain and the map (20–150).",
           "preavviso": "\"Rain incoming\" turns on when the estimated arrival is within this many minutes.",
           "distanza_arrivo": "Rain counts as arrived when it is within this many km of the point (1–30). Used by \"Rain arrival\" and \"Rain incoming\".",
-          "nascondi_deboli": "Echoes below 15 dBZ (drizzle or rain that does not reach the ground) are not drawn, in the card and the radar map image. Alerts and sensors do not change."
+          "nascondi_deboli": "Echoes below 15 dBZ (drizzle or rain that does not reach the ground) are not drawn, in the card and the radar map image. Alerts and sensors do not change.",
+          "mappa": "Background of the Radar map picture and of the card (unless the card sets its own). The provider's credits are shown under the map automatically."
         }
       }
     }
@@ -68,6 +70,14 @@
     "image": {
       "mappa_radar": {
         "name": "Map radar"
+      }
+    }
+  },
+  "selector": {
+    "mappa": {
+      "options": {
+        "openstreetmap": "OpenStreetMap",
+        "topografica": "Topographic (OpenTopoMap)"
       }
     }
   }

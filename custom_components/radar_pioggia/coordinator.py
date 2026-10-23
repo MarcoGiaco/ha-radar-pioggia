@@ -38,8 +38,13 @@ from .analysis import (
 )
 from .api import BasemapClient, CannotConnect, DpcClient, RainViewerClient
 from .const import (
-    BASEMAP_ATTRIBUTION,
+    BASEMAPS,
+    CONF_ALERT_KM,
+    CONF_BASEMAP,
+    CONF_HIDE_WEAK,
     CONF_RADIUS,
+    DEFAULT_ALERT_KM,
+    DEFAULT_BASEMAP,
     DEFAULT_RADIUS,
     DOMAIN,
     DPC_DELAY_MIN,
@@ -48,9 +53,6 @@ from .const import (
     FORECAST_MIN,
     FORECAST_STEP_MIN,
     FRAME_STEP_MIN,
-    CONF_ALERT_KM,
-    CONF_HIDE_WEAK,
-    DEFAULT_ALERT_KM,
     FRAMES,
     HISTORY_MIN,
     SCAN_INTERVAL_MIN,
@@ -82,8 +84,9 @@ class RadarCoordinator(DataUpdateCoordinator[RadarResult]):
             update_interval=timedelta(minutes=SCAN_INTERVAL_MIN),
         )
         session = async_get_clientsession(hass)
-        self.dpc = DpcClient(session)
-        self.rainviewer = RainViewerClient(session)
+        self._dpc = DpcClient(session)
+        self._rainviewer = RainViewerClient(session)
+        self._rv_host = ""
         self._basemap_client = BasemapClient(session)
         self._basemap = None
         self._map_png: tuple[datetime, bytes] | None = None
@@ -97,6 +100,10 @@ class RadarCoordinator(DataUpdateCoordinator[RadarResult]):
         self._alert_km = entry.options.get(CONF_ALERT_KM, DEFAULT_ALERT_KM)
         # Weakest echo drawn on the map pictures (0 = all).
         self.min_dbz = WEAK_DBZ if entry.options.get(CONF_HIDE_WEAK, False) else 0
+        # Base map of the picture and, unless the card sets its own, of the card.
+        self.basemap_url, self.basemap_attribution = BASEMAPS.get(
+            entry.options.get(CONF_BASEMAP), BASEMAPS[DEFAULT_BASEMAP]
+        )
         self._area = self.window.grow(self._margin)
         # Decoded frames and their map images by "source:id", so each frame is
         # downloaded and drawn once.
@@ -162,7 +169,7 @@ class RadarCoordinator(DataUpdateCoordinator[RadarResult]):
         self.update_interval = wait
 
     async def _update_dpc(self) -> RadarResult:
-        last = await self.dpc.last_time()
+        last = await self._dpc.last_time()
         times = [last - timedelta(minutes=DPC_STEP_MIN * i) for i in reversed(range(HISTORY_MIN // DPC_STEP_MIN + 1))]
         # Analysis uses the newest frame and the ones 10 and 20 minutes before it.
         analysed = {last - timedelta(minutes=FRAME_STEP_MIN * i) for i in range(FRAMES)}
@@ -171,7 +178,7 @@ class RadarCoordinator(DataUpdateCoordinator[RadarResult]):
         )
 
     async def _update_rainviewer(self) -> RadarResult:
-        host, past = await self.rainviewer.frames()
+        host, past = await self._rainviewer.frames()
         if not past:
             raise CannotConnect("RainViewer non ha fotogrammi radar")
         self._rv_host = host
@@ -187,13 +194,13 @@ class RadarCoordinator(DataUpdateCoordinator[RadarResult]):
     async def _download(self, source: str, key: str, time: datetime) -> Frame:
         tiles_xy = self._area.tiles()
         if source == SOURCE_DPC:
-            blobs = await asyncio.gather(*(self.dpc.tile(time, x, y) for x, y in tiles_xy))
+            blobs = await asyncio.gather(*(self._dpc.tile(time, x, y) for x, y in tiles_xy))
             if all(b is None for b in blobs):
                 raise CannotConnect(f"nessun tile per {time:%H:%M} UTC (punto fuori copertura?)")
             decoder = decode_dpc_tile
         else:
             path = key.removeprefix("rv:")
-            blobs = await asyncio.gather(*(self.rainviewer.tile(self._rv_host, path, x, y) for x, y in tiles_xy))
+            blobs = await asyncio.gather(*(self._rainviewer.tile(self._rv_host, path, x, y) for x, y in tiles_xy))
             decoder = decode_tile
         tiles = dict(zip(tiles_xy, blobs))
         dbz, snow = await self.hass.async_add_executor_job(build_field, self._area, tiles, decoder)
@@ -218,10 +225,7 @@ class RadarCoordinator(DataUpdateCoordinator[RadarResult]):
         self._frames = {k: f for k, f in self._frames.items() if k in keys}
         self._pngs = {k: p for k, p in self._pngs.items() if k in keys}
         areas = [self._frames[k] for k, _, needed in wanted if needed]
-        frames = [crop_frame(f, self._margin) for f in areas]
-        result = await self.hass.async_add_executor_job(
-            analyse, frames, self.window, self._alert_km, areas, self._margin
-        )
+        result = await self.hass.async_add_executor_job(analyse, areas, self.window, self._alert_km, self._margin)
         history = [(k, self._frames[k]) for k in keys if k in self._frames]
         self.timeline = await self.hass.async_add_executor_job(
             self._render_timeline, history, result.velocity
@@ -250,18 +254,22 @@ class RadarCoordinator(DataUpdateCoordinator[RadarResult]):
             keys = map_tiles(self.window)
             z = ZOOM + MAP_ZOOM_STEP
             try:
-                blobs = await asyncio.gather(*(self._basemap_client.tile(z, x, y) for x, y in keys))
+                blobs = await asyncio.gather(
+                    *(self._basemap_client.tile(self.basemap_url, z, x, y) for x, y in keys)
+                )
             except CannotConnect as err:
                 _LOGGER.warning("Mappa di sfondo non disponibile: %s", err)
                 blobs = [None] * len(keys)
-            basemap = await self.hass.async_add_executor_job(build_basemap, self.window, dict(zip(keys, blobs)))
+            basemap, complete = await self.hass.async_add_executor_job(
+                build_basemap, self.window, dict(zip(keys, blobs))
+            )
             # Keep it only when complete, so a failed download is tried again.
-            if all(blobs):
+            if complete:
                 self._basemap = basemap
         else:
             basemap = self._basemap
         source = self.data.source if self.data else ""
-        label = f"{label_time} · {source} · {BASEMAP_ATTRIBUTION}"
+        label = " · ".join(p for p in (label_time, source, self.basemap_attribution) if p)
         png = await self.hass.async_add_executor_job(render_map, basemap, frame.dbz, frame.snow, label, self.min_dbz)
         self._map_png = (frame.time, png)
         return png

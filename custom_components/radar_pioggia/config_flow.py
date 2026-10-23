@@ -20,15 +20,21 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
     TextSelector,
 )
 
 from .const import (
+    BASEMAPS,
     CONF_ALERT_KM,
+    CONF_BASEMAP,
     CONF_HIDE_WEAK,
     CONF_LEAD,
     CONF_RADIUS,
     DEFAULT_ALERT_KM,
+    DEFAULT_BASEMAP,
     DEFAULT_LEAD,
     DEFAULT_RADIUS,
     DOMAIN,
@@ -103,12 +109,12 @@ class RadarConfigFlow(ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
-        """Options: radius, lead time and arrival distance."""
+        """Options: radius, lead time, arrival distance and map."""
         return RadarOptionsFlow()
 
 
 class RadarOptionsFlow(OptionsFlow):
-    """Change the analysed radius, when 'Pioggia in arrivo' turns on and when the rain counts as arrived."""
+    """Change the analysed radius, when 'Pioggia in arrivo' turns on, when the rain counts as arrived and the map."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
@@ -118,6 +124,7 @@ class RadarOptionsFlow(OptionsFlow):
                     CONF_LEAD: int(user_input[CONF_LEAD]),
                     CONF_ALERT_KM: int(user_input[CONF_ALERT_KM]),
                     CONF_HIDE_WEAK: bool(user_input[CONF_HIDE_WEAK]),
+                    CONF_BASEMAP: user_input[CONF_BASEMAP],
                 }
             )
         opts = self.config_entry.options
@@ -144,6 +151,12 @@ class RadarOptionsFlow(OptionsFlow):
                         )
                     ),
                     vol.Required(CONF_HIDE_WEAK, default=opts.get(CONF_HIDE_WEAK, False)): BooleanSelector(),
+                    vol.Required(CONF_BASEMAP, default=opts.get(CONF_BASEMAP, DEFAULT_BASEMAP)): SelectSelector(
+                        SelectSelectorConfig(
+                            options=list(BASEMAPS), translation_key=CONF_BASEMAP, mode=SelectSelectorMode.DROPDOWN,
+                        )
+                    ),
                 }
             ),
         )
+

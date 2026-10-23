@@ -9,10 +9,17 @@ DPC_TILE_URL = (
     "https://s3-prod-dpc-radar-webp-cache.s3.eu-south-1.amazonaws.com"
     "/{product}/{date}/{hhmm}/{z}/{x}/{y}/{name}.webp"
 )
-USER_AGENT = "HomeAssistant-radar_pioggia/0.4 (+https://github.com/MarcoGiaco/ha-radar-pioggia)"
-# Base map of the radar picture (image entity), OpenStreetMap standard tiles.
-BASEMAP_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-BASEMAP_ATTRIBUTION = "© OpenStreetMap"
+USER_AGENT = "HomeAssistant-radar_pioggia (+https://github.com/MarcoGiaco/ha-radar-pioggia)"
+# Base maps for the radar picture and the card, chosen in the options:
+# key → (tile address, credits the provider asks to show).
+BASEMAPS = {
+    "openstreetmap": ("https://tile.openstreetmap.org/{z}/{x}/{y}.png", "© OpenStreetMap"),
+    "topografica": (
+        "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+        "© OpenStreetMap, SRTM · © OpenTopoMap (CC BY-SA)",
+    ),
+}
+DEFAULT_BASEMAP = "openstreetmap"
 ATTRIBUTION = "Radar: Dipartimento della Protezione Civile (CC BY-SA 4.0) · RainViewer.com"
 
 SOURCE_DPC = "Radar-DPC"
@@ -22,6 +29,7 @@ CONF_RADIUS = "raggio"
 CONF_LEAD = "preavviso"
 CONF_ALERT_KM = "distanza_arrivo"
 CONF_HIDE_WEAK = "nascondi_deboli"
+CONF_BASEMAP = "mappa"
 
 # km around the point that are analysed.
 DEFAULT_RADIUS = 60

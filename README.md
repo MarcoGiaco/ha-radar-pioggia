@@ -6,7 +6,7 @@ Integrazione custom che legge il radar meteo della [Protezione Civile (Radar-DPC
 >
 > - **Radar-DPC**: mosaico radar nazionale, un fotogramma ogni 5 minuti, valori in dBZ (prodotto VMI), circa 1 km per pixel. Dati con licenza [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/): la fonte va citata.
 > - **RainViewer**: API pubblica gratuita, un fotogramma ogni 10 minuti, intensità ricostruita dai colori della mappa. Secondo i [termini di RainViewer](https://www.rainviewer.com/api.html) l'API è **solo per uso personale ed educativo**, citando RainViewer: non usare questa integrazione per scopi commerciali con RainViewer come fonte.
-> - **Mappa di sfondo** della scheda e dell'entità *Mappa radar*: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, dati con licenza [ODbL](https://opendatacommons.org/licenses/odbl/), secondo la loro [policy sull'uso dei tile](https://operations.osmfoundation.org/policies/tiles/). Nella scheda si può sostituire con un altro fornitore (vedi *Scheda mappa*); l'immagine *Mappa radar* riporta sempre "© OpenStreetMap".
+> - **Mappa di sfondo** della scheda e dell'entità *Mappa radar*: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, dati con licenza [ODbL](https://opendatacommons.org/licenses/odbl/), secondo la loro [policy sull'uso dei tile](https://operations.osmfoundation.org/policies/tiles/). Nelle opzioni si può scegliere anche OpenTopoMap (vedi *Mappa di sfondo*): in quel caso valgono i suoi termini.
 >
 > I dati non passano da nessun server di questo progetto: ogni installazione di Home Assistant li scarica direttamente dalle fonti.
 >
@@ -49,6 +49,18 @@ Da **Impostazioni → Dispositivi e servizi → Radar pioggia → Configura**:
 | Preavviso | 45 min (15–90) | quando si accende *Pioggia in arrivo* |
 | Distanza di arrivo | 3 km (1–30) | entro quanti km dal punto la pioggia conta come arrivata, per *Arrivo pioggia* e *Pioggia in arrivo*. *Pioggia sul punto* guarda sempre i 3 km attorno al punto |
 | Nascondi le eco deboli sulla mappa | no | non colora le eco sotto i 15 dBZ (pioviggine o pioggia che evapora prima di arrivare a terra), nella scheda e nell'immagine *Mappa radar*. Sensori e avvisi non cambiano |
+| Mappa di sfondo | OpenStreetMap | lo sfondo dell'immagine *Mappa radar* e della scheda, vedi *Mappa di sfondo* |
+
+### Mappa di sfondo
+
+Nelle opzioni si sceglie lo sfondo tra:
+
+| Mappa | Fornitore | Crediti mostrati |
+|---|---|---|
+| OpenStreetMap | [OpenStreetMap](https://www.openstreetmap.org/copyright) ([policy dei tile](https://operations.osmfoundation.org/policies/tiles/)) | © OpenStreetMap |
+| Topografica | [OpenTopoMap](https://opentopomap.org/about), con i rilievi | © OpenStreetMap, SRTM · © OpenTopoMap (CC BY-SA) |
+
+I crediti compaiono da soli sotto la mappa della scheda e nella didascalia dell'immagine. Una scheda con il suo `tile_url` usa invece quello (vedi *Scheda*).
 
 ## Installazione
 
@@ -88,13 +100,13 @@ card_mod:
 
 La mappa resta dentro l'area scaricata: non si può allontanare né spostare oltre i bordi dell'immagine radar. Il pulsante con la casa la riporta sul punto.
 
-Le immagini sono preparate da Home Assistant: i tile DPC non si possono leggere direttamente dal browser. Lo sfondo della mappa è OpenStreetMap, scurito in tema scuro. Con `tile_url` si può usare un altro fornitore di tile (formato `{z}/{x}/{y}`): in quel caso metti in `tile_attribution` i crediti che il fornitore richiede e rispetta i suoi termini.
+Le immagini sono preparate da Home Assistant: i tile DPC non si possono leggere direttamente dal browser. Lo sfondo è quello scelto nelle opzioni dell'integrazione (di serie OpenStreetMap), scurito in tema scuro. Con `tile_url` una singola scheda può usare un altro fornitore (formato `{z}/{x}/{y}`): in quel caso metti in `tile_attribution` i crediti che il fornitore richiede e rispetta i suoi termini.
 
 ## Immagine mappa
 
-L'entità *Mappa radar* (`image.radar_pioggia_casa_mappa_radar`) è una foto di circa 570×570 px: l'ultimo fotogramma radar sopra la mappa OpenStreetMap, con il punto segnato in rosso e in basso ora, fonte e crediti della mappa. Si aggiorna a ogni fotogramma nuovo. Serve soprattutto per le notifiche, ma si può mostrare anche con una normale scheda *Immagine*.
+L'entità *Mappa radar* (`image.radar_pioggia_casa_mappa_radar`) è una foto di circa 570×570 px: l'ultimo fotogramma radar sopra la mappa di sfondo (di serie OpenStreetMap), con il punto segnato in rosso e in basso ora, fonte e crediti della mappa. Si aggiorna a ogni fotogramma nuovo. Serve soprattutto per le notifiche, ma si può mostrare anche con una normale scheda *Immagine*.
 
-La mappa di sfondo (una decina di tile OpenStreetMap) viene scaricata solo la prima volta che l'immagine viene chiesta, poi resta in memoria fino al riavvio. Se l'immagine non viene mai usata, non si scarica nulla. L'immagine col radar viene disegnata una volta per fotogramma.
+La mappa di sfondo (una decina di tile) viene scaricata solo la prima volta che l'immagine viene chiesta, poi resta in memoria fino al riavvio. Se l'immagine non viene mai usata, non si scarica nulla. L'immagine col radar viene disegnata una volta per fotogramma.
 
 ## Esempio di notifica
 
