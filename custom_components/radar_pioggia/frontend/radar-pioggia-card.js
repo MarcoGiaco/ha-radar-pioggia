@@ -21,6 +21,14 @@ const MAP_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright
 const STEP_MS = 700;
 const HOLD_MS = 1500;
 const REFRESH_MS = 5 * 60 * 1000;
+// After a failed load, try again after these delays (the last one repeats).
+const RETRY_MS = [5000, 15000, 30000, 60000];
+// A request that hangs (the phone app was suspended mid-request) gives up
+// after this long, so it cannot block every later load.
+const TIMEOUT_MS = 20000;
+
+const withTimeout = (promise, ms = TIMEOUT_MS) =>
+  Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms))]);
 
 let leafletReady;
 function loadLeaflet() {
@@ -30,11 +38,14 @@ function loadLeaflet() {
       const s = document.createElement("script");
       s.src = LEAFLET + "leaflet.js";
       s.onload = resolve;
-      s.onerror = () => { leafletReady = undefined; reject(new Error("Leaflet non caricato")); };
+      s.onerror = () => { leafletReady = undefined; s.remove(); reject(new Error("Leaflet non caricato")); };
       document.head.appendChild(s);
     });
   }
-  return leafletReady;
+  return withTimeout(leafletReady).catch((err) => {
+    if (!window.L) leafletReady = undefined;
+    throw err;
+  });
 }
 
 const hhmm = (d) => d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
@@ -98,11 +109,21 @@ class RadarPioggiaCard extends HTMLElement {
 
   connectedCallback() {
     this._timer = setInterval(() => this._load(), REFRESH_MS);
+    // Back from the background (phone app reopened): load again at once.
+    this._onVisible = () => {
+      if (document.hidden) return;
+      if (this._map) this._map.invalidateSize();
+      this._load();
+    };
+    document.addEventListener("visibilitychange", this._onVisible);
     if (this._map) setTimeout(() => this._map.invalidateSize(), 0);
+    if (this._hass && !this._frames.length) this._load();
   }
 
   disconnectedCallback() {
     clearInterval(this._timer);
+    clearTimeout(this._retryTimer);
+    document.removeEventListener("visibilitychange", this._onVisible);
     this._stop();
   }
 
@@ -173,7 +194,8 @@ class RadarPioggiaCard extends HTMLElement {
       if (!this._map) return;
       this._map.invalidateSize();
       this._limitView();
-    }).observe(this._el.map);
+    });
+    this._resize.observe(this._el.map);
   }
 
   async _initMap(data) {
@@ -256,8 +278,9 @@ class RadarPioggiaCard extends HTMLElement {
   async _load() {
     if (!this._hass || this._loading) return;
     this._loading = true;
+    clearTimeout(this._retryTimer);
     try {
-      const data = await this._hass.callApi("GET", `radar_pioggia/frames/${this._config.entity}`);
+      const data = await withTimeout(this._hass.callApi("GET", `radar_pioggia/frames/${this._config.entity}`));
       await this._initMap(data);
       this._area = window.L.latLngBounds(data.bounds);
       this._overlay.setBounds(this._area);
@@ -273,6 +296,7 @@ class RadarPioggiaCard extends HTMLElement {
       this._el.range.max = String(Math.max(0, this._frames.length - 1));
       this._el.msg.textContent = this._frames.length ? "" : "Nessun dato radar";
       this._retried = false;
+      this._fails = 0;
       if (!this._playing) this._show(wasLast || this._index >= this._frames.length ? this._nowIndex() : this._index);
     } catch (err) {
       // The frame list changed while loading the images: read it once more.
@@ -281,7 +305,11 @@ class RadarPioggiaCard extends HTMLElement {
         this._loading = false;
         return this._load();
       }
-      this._el.msg.textContent = "Radar non disponibile";
+      // Keep showing the frames already loaded, and try again shortly.
+      if (!this._frames.length) this._el.msg.textContent = "Radar non disponibile, riprovo…";
+      const fails = this._fails || 0;
+      this._fails = fails + 1;
+      this._retryTimer = setTimeout(() => this._load(), RETRY_MS[Math.min(fails, RETRY_MS.length - 1)]);
       console.warn("radar-pioggia-card:", err);
     } finally {
       this._loading = false;
@@ -289,7 +317,7 @@ class RadarPioggiaCard extends HTMLElement {
   }
 
   async _fetchImage(url) {
-    const resp = await this._hass.fetchWithAuth(url);
+    const resp = await withTimeout(this._hass.fetchWithAuth(url));
     if (!resp.ok) throw Object.assign(new Error(`HTTP ${resp.status}`), { status: resp.status });
     return URL.createObjectURL(await resp.blob());
   }
@@ -339,14 +367,17 @@ class RadarPioggiaCard extends HTMLElement {
   }
 }
 
-customElements.define("radar-pioggia-card", RadarPioggiaCard);
-window.customCards = window.customCards || [];
-window.customCards.push({
-  type: "radar-pioggia-card",
-  name: "Radar pioggia",
-  description: "Mappa del radar con l'ultima ora e la stima della prossima, con cursore del tempo.",
-  preview: true,
-});
+// A page still open across an update can load the card a second time.
+if (!customElements.get("radar-pioggia-card")) {
+  customElements.define("radar-pioggia-card", RadarPioggiaCard);
+  window.customCards = window.customCards || [];
+  window.customCards.push({
+    type: "radar-pioggia-card",
+    name: "Radar pioggia",
+    description: "Mappa del radar con l'ultima ora e la stima della prossima, con cursore del tempo.",
+    preview: true,
+  });
+}
 
 // Visual editor.
 const EDITOR_SCHEMA = [
@@ -405,4 +436,4 @@ class RadarPioggiaCardEditor extends HTMLElement {
   }
 }
 
-customElements.define("radar-pioggia-card-editor", RadarPioggiaCardEditor);
+if (!customElements.get("radar-pioggia-card-editor")) customElements.define("radar-pioggia-card-editor", RadarPioggiaCardEditor);

@@ -60,7 +60,7 @@ In entrambi i casi riavvia Home Assistant, poi **Impostazioni → Dispositivi e 
 
 ## Scheda mappa
 
-L'integrazione porta con sé una scheda (`custom:radar-pioggia-card`), caricata in automatico. Non serve aggiungere risorse. La scheda mostra:
+L'integrazione porta con sé una scheda (`custom:radar-pioggia-card`), caricata in automatico: l'integrazione la aggiunge da sola alle risorse delle dashboard (Impostazioni → Dashboard → Risorse) e ne aggiorna la versione. Non serve aggiungerla a mano, e quando elimini l'ultimo punto configurato la risorsa viene tolta. Se invece disinstalli solo da HACS senza prima eliminare l'integrazione, la risorsa resta e va tolta a mano. La scheda mostra:
 - il radar dell'ultima ora, un fotogramma ogni 5 minuti con DPC;
 - la stima della prossima ora, con l'ultimo fotogramma spostato secondo il movimento misurato. La stima compare solo quando c'è pioggia che si muove;
 - un cursore per scorrere il tempo e un tasto play.
