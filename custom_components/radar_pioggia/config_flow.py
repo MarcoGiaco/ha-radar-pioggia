@@ -15,6 +15,7 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE, CONF_NAME
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     LocationSelector,
     NumberSelector,
     NumberSelectorConfig,
@@ -23,13 +24,18 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    CONF_ALERT_KM,
+    CONF_HIDE_WEAK,
     CONF_LEAD,
     CONF_RADIUS,
+    DEFAULT_ALERT_KM,
     DEFAULT_LEAD,
     DEFAULT_RADIUS,
     DOMAIN,
+    MAX_ALERT_KM,
     MAX_LEAD,
     MAX_RADIUS,
+    MIN_ALERT_KM,
     MIN_LEAD,
     MIN_RADIUS,
 )
@@ -97,12 +103,12 @@ class RadarConfigFlow(ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
-        """Options: radius and lead time."""
+        """Options: radius, lead time and arrival distance."""
         return RadarOptionsFlow()
 
 
 class RadarOptionsFlow(OptionsFlow):
-    """Change the analysed radius and when 'Pioggia in arrivo' turns on."""
+    """Change the analysed radius, when 'Pioggia in arrivo' turns on and when the rain counts as arrived."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
@@ -110,6 +116,8 @@ class RadarOptionsFlow(OptionsFlow):
                 data={
                     CONF_RADIUS: int(user_input[CONF_RADIUS]),
                     CONF_LEAD: int(user_input[CONF_LEAD]),
+                    CONF_ALERT_KM: int(user_input[CONF_ALERT_KM]),
+                    CONF_HIDE_WEAK: bool(user_input[CONF_HIDE_WEAK]),
                 }
             )
         opts = self.config_entry.options
@@ -129,6 +137,13 @@ class RadarOptionsFlow(OptionsFlow):
                             unit_of_measurement="min", mode=NumberSelectorMode.BOX,
                         )
                     ),
+                    vol.Required(CONF_ALERT_KM, default=opts.get(CONF_ALERT_KM, DEFAULT_ALERT_KM)): NumberSelector(
+                        NumberSelectorConfig(
+                            min=MIN_ALERT_KM, max=MAX_ALERT_KM, step=1,
+                            unit_of_measurement="km", mode=NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Required(CONF_HIDE_WEAK, default=opts.get(CONF_HIDE_WEAK, False)): BooleanSelector(),
                 }
             ),
         )

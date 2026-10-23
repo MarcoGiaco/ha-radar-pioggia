@@ -6,40 +6,57 @@ import asyncio
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 import logging
+import math
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .analysis import (
     Frame,
     RadarResult,
+    MAP_ZOOM_STEP,
+    MAX_LEAD_MIN,
+    MAX_SPEED_KMH,
+    ZOOM,
     advect,
     analyse,
+    build_basemap,
     build_field,
+    crop_frame,
     decode_dpc_tile,
     decode_tile,
     frame_time,
     make_window,
+    map_tiles,
+    render_map,
     render_png,
     window_bounds,
 )
-from .api import CannotConnect, DpcClient, RainViewerClient
+from .api import BasemapClient, CannotConnect, DpcClient, RainViewerClient
 from .const import (
+    BASEMAP_ATTRIBUTION,
     CONF_RADIUS,
     DEFAULT_RADIUS,
     DOMAIN,
+    DPC_DELAY_MIN,
     DPC_STEP_MIN,
+    FAST_POLL_S,
     FORECAST_MIN,
     FORECAST_STEP_MIN,
     FRAME_STEP_MIN,
+    CONF_ALERT_KM,
+    CONF_HIDE_WEAK,
+    DEFAULT_ALERT_KM,
     FRAMES,
     HISTORY_MIN,
     SCAN_INTERVAL_MIN,
     SOURCE_DPC,
     SOURCE_RAINVIEWER,
+    WEAK_DBZ,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -67,9 +84,20 @@ class RadarCoordinator(DataUpdateCoordinator[RadarResult]):
         session = async_get_clientsession(hass)
         self.dpc = DpcClient(session)
         self.rainviewer = RainViewerClient(session)
+        self._basemap_client = BasemapClient(session)
+        self._basemap = None
+        self._map_png: tuple[datetime, bytes] | None = None
         radius = entry.options.get(CONF_RADIUS, DEFAULT_RADIUS)
         self.window = make_window(entry.data[CONF_LATITUDE], entry.data[CONF_LONGITUDE], radius)
         self.bounds = window_bounds(self.window)
+        # Frames are downloaded with a margin around the window: as far as the
+        # fastest rain we track travels in the longest forecast. Rain still
+        # outside the window then enters the map forecast and the arrival time.
+        self._margin = math.ceil(MAX_SPEED_KMH * max(FORECAST_MIN, MAX_LEAD_MIN) / 60 / self.window.km_px)
+        self._alert_km = entry.options.get(CONF_ALERT_KM, DEFAULT_ALERT_KM)
+        # Weakest echo drawn on the map pictures (0 = all).
+        self.min_dbz = WEAK_DBZ if entry.options.get(CONF_HIDE_WEAK, False) else 0
+        self._area = self.window.grow(self._margin)
         # Decoded frames and their map images by "source:id", so each frame is
         # downloaded and drawn once.
         self._frames: dict[str, Frame] = {}
@@ -77,16 +105,61 @@ class RadarCoordinator(DataUpdateCoordinator[RadarResult]):
         self._last_key: str | None = None
         # Map frames for the card: the last HISTORY_MIN minutes, then the forecast.
         self.timeline: list[MapFrame] = []
+        # Minutes between a DPC frame's time and its publication, learned from
+        # the frames seen while checking every FAST_POLL_S seconds.
+        self._dpc_delay = timedelta(minutes=DPC_DELAY_MIN)
+        self._got_new = False
 
     async def _async_update_data(self) -> RadarResult:
+        fast = self.update_interval is not None and self.update_interval <= timedelta(seconds=FAST_POLL_S)
+        self.update_interval = timedelta(minutes=SCAN_INTERVAL_MIN)
+        self._got_new = False
         try:
-            return await self._update_dpc()
+            result = await self._update_dpc()
         except CannotConnect as err:
+            # A frame just announced may not be in the tile cache yet: keep the
+            # recent DPC data and look again soon instead of switching source.
+            if self._recent_dpc():
+                _LOGGER.debug("Radar-DPC: fotogramma non ancora pronto (%s)", err)
+                self.update_interval = timedelta(seconds=FAST_POLL_S)
+                return self.data
             _LOGGER.debug("Radar-DPC non disponibile, uso RainViewer: %s", err)
+        else:
+            self._schedule_dpc(result.time, fast)
+            return result
         try:
             return await self._update_rainviewer()
         except CannotConnect as err:
             raise UpdateFailed(f"Nessuna fonte radar disponibile: {err}") from err
+
+    def _recent_dpc(self) -> bool:
+        return (
+            self.data is not None
+            and self.data.source == SOURCE_DPC
+            and dt_util.utcnow() - self.data.time < timedelta(minutes=20)
+        )
+
+    def _schedule_dpc(self, newest: datetime, fast: bool) -> None:
+        """Check again just before the next frame is due, then every FAST_POLL_S.
+
+        DPC publishes a frame every 5 minutes, some minutes after its nominal
+        time, so a fixed 5-minute interval could see it up to 5 minutes late.
+        """
+        now = dt_util.utcnow()
+        if self._got_new:
+            # A new frame is out, so the delay is at most now - newest. Found
+            # while checking often, that is the delay to within FAST_POLL_S;
+            # found at the first check, DPC was quicker than learned.
+            delay = now - newest
+            if timedelta(minutes=1) <= delay <= timedelta(minutes=20) and (fast or delay < self._dpc_delay):
+                self._dpc_delay = delay
+        due = newest + timedelta(minutes=DPC_STEP_MIN) + self._dpc_delay - timedelta(seconds=FAST_POLL_S)
+        if now - newest > timedelta(minutes=20):
+            # DPC has stopped publishing: no need to keep asking often.
+            wait = timedelta(minutes=SCAN_INTERVAL_MIN)
+        else:
+            wait = min(max(due - now, timedelta(seconds=FAST_POLL_S)), timedelta(minutes=SCAN_INTERVAL_MIN))
+        self.update_interval = wait
 
     async def _update_dpc(self) -> RadarResult:
         last = await self.dpc.last_time()
@@ -112,7 +185,7 @@ class RadarCoordinator(DataUpdateCoordinator[RadarResult]):
         return await self._update(SOURCE_RAINVIEWER, wanted)
 
     async def _download(self, source: str, key: str, time: datetime) -> Frame:
-        tiles_xy = self.window.tiles()
+        tiles_xy = self._area.tiles()
         if source == SOURCE_DPC:
             blobs = await asyncio.gather(*(self.dpc.tile(time, x, y) for x, y in tiles_xy))
             if all(b is None for b in blobs):
@@ -123,7 +196,7 @@ class RadarCoordinator(DataUpdateCoordinator[RadarResult]):
             blobs = await asyncio.gather(*(self.rainviewer.tile(self._rv_host, path, x, y) for x, y in tiles_xy))
             decoder = decode_tile
         tiles = dict(zip(tiles_xy, blobs))
-        dbz, snow = await self.hass.async_add_executor_job(build_field, self.window, tiles, decoder)
+        dbz, snow = await self.hass.async_add_executor_job(build_field, self._area, tiles, decoder)
         return Frame(time, dbz, snow)
 
     async def _update(self, source: str, wanted: list[tuple[str, datetime, bool]]) -> RadarResult:
@@ -144,27 +217,69 @@ class RadarCoordinator(DataUpdateCoordinator[RadarResult]):
 
         self._frames = {k: f for k, f in self._frames.items() if k in keys}
         self._pngs = {k: p for k, p in self._pngs.items() if k in keys}
-        frames = [self._frames[k] for k, _, needed in wanted if needed]
-        result = await self.hass.async_add_executor_job(analyse, frames, self.window)
+        areas = [self._frames[k] for k, _, needed in wanted if needed]
+        frames = [crop_frame(f, self._margin) for f in areas]
+        result = await self.hass.async_add_executor_job(
+            analyse, frames, self.window, self._alert_km, areas, self._margin
+        )
         history = [(k, self._frames[k]) for k in keys if k in self._frames]
         self.timeline = await self.hass.async_add_executor_job(
             self._render_timeline, history, result.velocity
         )
         self._last_key = keys[-1]
+        self._got_new = True
         return replace(result, source=source)
+
+    @property
+    def latest_frame(self) -> Frame | None:
+        """The newest measured radar frame."""
+        frame = self._frames.get(self._last_key) if self._last_key else None
+        return crop_frame(frame, self._margin) if frame else None
+
+    async def async_map_png(self, label_time: str) -> bytes | None:
+        """Picture of the newest frame over the base map, for the image entity.
+
+        The base map is downloaded only the first time a picture is asked for.
+        """
+        frame = self.latest_frame
+        if frame is None:
+            return None
+        if self._map_png and self._map_png[0] == frame.time:
+            return self._map_png[1]
+        if self._basemap is None:
+            keys = map_tiles(self.window)
+            z = ZOOM + MAP_ZOOM_STEP
+            try:
+                blobs = await asyncio.gather(*(self._basemap_client.tile(z, x, y) for x, y in keys))
+            except CannotConnect as err:
+                _LOGGER.warning("Mappa di sfondo non disponibile: %s", err)
+                blobs = [None] * len(keys)
+            basemap = await self.hass.async_add_executor_job(build_basemap, self.window, dict(zip(keys, blobs)))
+            # Keep it only when complete, so a failed download is tried again.
+            if all(blobs):
+                self._basemap = basemap
+        else:
+            basemap = self._basemap
+        source = self.data.source if self.data else ""
+        label = f"{label_time} · {source} · {BASEMAP_ATTRIBUTION}"
+        png = await self.hass.async_add_executor_job(render_map, basemap, frame.dbz, frame.snow, label, self.min_dbz)
+        self._map_png = (frame.time, png)
+        return png
 
     def _render_timeline(self, history: list[tuple[str, Frame]], velocity) -> list[MapFrame]:
         """Map images: past frames (cached) and the newest one moved forward."""
         out = []
         for key, frame in history:
             if key not in self._pngs:
-                self._pngs[key] = render_png(frame.dbz, frame.snow)
+                inner = crop_frame(frame, self._margin)
+                self._pngs[key] = render_png(inner.dbz, inner.snow, self.min_dbz)
             out.append(MapFrame(frame.time, False, self._pngs[key]))
         if velocity is not None and history:
             newest = history[-1][1]
             for minutes in range(FORECAST_STEP_MIN, FORECAST_MIN + 1, FORECAST_STEP_MIN):
-                dbz, snow = advect(newest.dbz, newest.snow, velocity, minutes)
-                out.append(MapFrame(newest.time + timedelta(minutes=minutes), True, render_png(dbz, snow)))
+                moved = Frame(newest.time, *advect(newest.dbz, newest.snow, velocity, minutes))
+                inner = crop_frame(moved, self._margin)
+                out.append(MapFrame(newest.time + timedelta(minutes=minutes), True, render_png(inner.dbz, inner.snow, self.min_dbz)))
         return out
 
 

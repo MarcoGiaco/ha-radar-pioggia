@@ -27,7 +27,9 @@ EARTH_KM = 40075.016686
 # dBZ thresholds. 20 dBZ is about 0.6 mm/h, the weakest rain that usually reaches the ground.
 RAIN_DBZ = 20
 STORM_DBZ = 45
-# The point counts as "hit" when an echo comes within this distance.
+# "Pioggia sul punto" looks at echoes within this distance.
+POINT_KM = 3.0
+# Default distance at which the rain counts as arrived (configurable).
 HIT_KM = 3.0
 # A pixel counts only with at least this many echoes in its 3x3 block (drops lone speckles).
 MIN_NEIGHBOURS = 3
@@ -91,6 +93,10 @@ class Window:
     @property
     def center(self) -> float:
         return (self.size - 1) / 2
+
+    def grow(self, margin: int) -> Window:
+        """The same square with `margin` more pixels on every side."""
+        return Window(self.x0 - margin, self.y0 - margin, self.size + 2 * margin, self.km_px)
 
     def tiles(self) -> list[tuple[int, int]]:
         tx = range(self.x0 // TILE, (self.x0 + self.size - 1) // TILE + 1)
@@ -180,6 +186,14 @@ class Frame:
     snow: np.ndarray
 
 
+def crop_frame(frame: Frame, margin: int) -> Frame:
+    """Drop `margin` pixels on every side (from the map area back to the window)."""
+    if margin == 0:
+        return frame
+    sl = (slice(margin, -margin), slice(margin, -margin))
+    return Frame(frame.time, frame.dbz[sl], frame.snow[sl])
+
+
 @dataclass
 class RadarResult:
     """What the radar says about the point."""
@@ -230,6 +244,17 @@ def _motion(prev: np.ndarray, cur: np.ndarray, minutes: float, km_px: float) -> 
         return None
     max_shift = int(MAX_SPEED_KMH * minutes / 60 / (km_px * 2)) + 1
     n = a.shape[0]
+    # Products of the overlapping parts for every shift at once (FFT
+    # cross-correlation), and their energies from summed-area tables, so the
+    # whole downloaded area can be searched quickly also on a Raspberry Pi.
+    size = 2 * n
+    corr = np.fft.irfft2(np.conj(np.fft.rfft2(a, (size, size))) * np.fft.rfft2(b, (size, size)), (size, size))
+    sa = np.pad((a * a).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+    sb = np.pad((b * b).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+
+    def energy(s: np.ndarray, y: int, x: int, h: int, w: int) -> float:
+        return float(s[y + h, x + w] - s[y, x + w] - s[y + h, x] + s[y, x])
+
     best, best_score = None, 0.0
     for sy in range(-max_shift, max_shift + 1):
         for sx in range(-max_shift, max_shift + 1):
@@ -238,12 +263,10 @@ def _motion(prev: np.ndarray, cur: np.ndarray, minutes: float, km_px: float) -> 
             h, w = n - abs(sy), n - abs(sx)
             if h < n // 2 or w < n // 2:
                 continue
-            pa = a[ya:ya + h, xa:xa + w]
-            pb = b[yb:yb + h, xb:xb + w]
-            denom = math.sqrt(float((pa * pa).sum()) * float((pb * pb).sum()))
+            denom = math.sqrt(energy(sa, ya, xa, h, w) * energy(sb, yb, xb, h, w))
             if denom == 0:
                 continue
-            score = float((pa * pb).sum()) / denom
+            score = float(corr[sy, sx]) / denom
             if score > best_score:
                 best, best_score = (sx, sy), score
     if best is None or best_score < 0.3:
@@ -251,13 +274,26 @@ def _motion(prev: np.ndarray, cur: np.ndarray, minutes: float, km_px: float) -> 
     return best[0] * 2 / minutes, best[1] * 2 / minutes
 
 
-def analyse(frames: list[Frame], window: Window) -> RadarResult:
-    """Analyse the frames (oldest first) for the point at the window centre."""
+def analyse(
+    frames: list[Frame],
+    window: Window,
+    hit_km: float = HIT_KM,
+    areas: list[Frame] | None = None,
+    margin: int = 0,
+) -> RadarResult:
+    """Analyse the frames (oldest first) for the point at the window centre.
+
+    The rain counts as arrived when it comes within `hit_km` of the point.
+    `areas` are the same frames with `margin` more pixels on every side: the
+    motion and the arrival search use them, so fast rain still outside the
+    window is seen even when none is inside it.
+    """
     cur = frames[-1]
+    area = areas[-1] if areas else None
     dist, bearing = _polar(window)
     valid = _echo_mask(cur.dbz, RAIN_DBZ)
 
-    near_point = dist <= HIT_KM
+    near_point = dist <= POINT_KM
     over = np.where(near_point & valid, cur.dbz, np.nan)
     over_dbz = float(np.nanmax(over)) if np.isfinite(over).any() else None
     over_snow = bool((cur.snow & near_point & valid).any())
@@ -288,10 +324,10 @@ def analyse(frames: list[Frame], window: Window) -> RadarResult:
     speed = moving_from = None
     vel = None
     if len(frames) >= 2:
-        old = frames[0]
-        minutes = (cur.time - old.time).total_seconds() / 60
+        first, last = (areas[0], areas[-1]) if areas else (frames[0], cur)
+        minutes = (last.time - first.time).total_seconds() / 60
         if minutes > 0:
-            vel = _motion(old.dbz, cur.dbz, minutes, window.km_px)
+            vel = _motion(first.dbz, last.dbz, minutes, window.km_px)
     if vel is not None:
         vx, vy = vel
         speed = math.hypot(vx, vy) * window.km_px * 60
@@ -303,18 +339,23 @@ def analyse(frames: list[Frame], window: Window) -> RadarResult:
     # Nowcast: which echo ends up over the point after `lead` minutes?
     eta = eta_dbz = None
     eta_snow = False
-    if over_dbz is not None:
-        eta, eta_dbz, eta_snow = 0, over_dbz, over_snow
-    elif vel is not None and valid.any():
-        ys, xs = np.nonzero(valid)
+    arrived = valid & (dist <= hit_km)
+    if arrived.any():
+        eta, eta_dbz = 0, float(np.nanmax(np.where(arrived, cur.dbz, np.nan)))
+        eta_snow = bool((cur.snow & arrived).any())
+    elif vel is not None:
+        src = area if area is not None else cur
+        src_valid = _echo_mask(src.dbz, RAIN_DBZ) if area is not None else valid
+        centre = window.center + (margin if area is not None else 0)
+        ys, xs = np.nonzero(src_valid)
         for lead in range(LEAD_STEP_MIN, MAX_LEAD_MIN + 1, LEAD_STEP_MIN):
-            px = xs + vel[0] * lead - window.center
-            py = ys + vel[1] * lead - window.center
-            hit = np.hypot(px, py) * window.km_px <= HIT_KM
+            px = xs + vel[0] * lead - centre
+            py = ys + vel[1] * lead - centre
+            hit = np.hypot(px, py) * window.km_px <= hit_km
             if hit.any():
                 eta = lead
-                eta_dbz = float(cur.dbz[ys[hit], xs[hit]].max())
-                eta_snow = bool(cur.snow[ys[hit], xs[hit]].any())
+                eta_dbz = float(src.dbz[ys[hit], xs[hit]].max())
+                eta_snow = bool(src.snow[ys[hit], xs[hit]].any())
                 break
 
     approaching = eta is not None and eta > 0
@@ -379,14 +420,79 @@ def _paint(rgba: np.ndarray, dbz: np.ndarray, mask: np.ndarray, colors) -> None:
         rgba[mask & (dbz >= lower)] = color
 
 
-def render_png(dbz: np.ndarray, snow: np.ndarray) -> bytes:
-    """RGBA PNG of one frame, same pixels as the analysed window."""
+def render_rgba(dbz: np.ndarray, snow: np.ndarray, min_dbz: float = 0) -> np.ndarray:
+    """Colored RGBA pixels of one frame, same pixels as the analysed window.
+
+    Echoes below `min_dbz` are left transparent.
+    """
     rgba = np.zeros(dbz.shape + (4,), dtype=np.uint8)
     d = np.nan_to_num(dbz, nan=-99)
+    d[d < min_dbz] = -99
     _paint(rgba, d, ~snow, RAIN_COLORS)
     _paint(rgba, d, snow, SNOW_COLORS)
+    return rgba
+
+
+def render_png(dbz: np.ndarray, snow: np.ndarray, min_dbz: float = 0) -> bytes:
+    """RGBA PNG of one frame, same pixels as the analysed window."""
     buf = io.BytesIO()
-    Image.fromarray(rgba, "RGBA").save(buf, "PNG", optimize=True)
+    Image.fromarray(render_rgba(dbz, snow, min_dbz), "RGBA").save(buf, "PNG", optimize=True)
+    return buf.getvalue()
+
+
+# The map picture uses base map tiles this many zoom levels above the radar.
+MAP_ZOOM_STEP = 2
+
+
+def map_tiles(window: Window) -> list[tuple[int, int]]:
+    """Base map tiles (at ZOOM + MAP_ZOOM_STEP) that cover the window."""
+    k = 2**MAP_ZOOM_STEP
+    x0, y0, x1, y1 = window.x0 * k, window.y0 * k, (window.x0 + window.size) * k - 1, (window.y0 + window.size) * k - 1
+    return [(x, y) for y in range(y0 // TILE, y1 // TILE + 1) for x in range(x0 // TILE, x1 // TILE + 1)]
+
+
+def build_basemap(window: Window, tiles: dict[tuple[int, int], bytes | None]) -> Image.Image:
+    """Stitch the base map tiles and crop the window, a bit faded so the rain stands out."""
+    k = 2**MAP_ZOOM_STEP
+    keys = map_tiles(window)
+    xs = sorted({t[0] for t in keys})
+    ys = sorted({t[1] for t in keys})
+    canvas = Image.new("RGB", (len(xs) * TILE, len(ys) * TILE), (232, 232, 228))
+    for (tx, ty), blob in tiles.items():
+        if blob:
+            canvas.paste(Image.open(io.BytesIO(blob)).convert("RGB"), ((tx - xs[0]) * TILE, (ty - ys[0]) * TILE))
+    ox, oy = window.x0 * k - xs[0] * TILE, window.y0 * k - ys[0] * TILE
+    size = window.size * k
+    base = canvas.crop((ox, oy, ox + size, oy + size))
+    return Image.blend(base, Image.new("RGB", base.size, (255, 255, 255)), 0.25)
+
+
+def render_map(basemap: Image.Image, dbz: np.ndarray, snow: np.ndarray, label: str, min_dbz: float = 0) -> bytes:
+    """PNG picture of one frame over the base map, with the point marked and a caption."""
+    from PIL import ImageDraw, ImageFont
+
+    size = basemap.size[0]
+    rain = Image.fromarray(render_rgba(dbz, snow, min_dbz), "RGBA").resize((size, size), Image.Resampling.BILINEAR)
+    img = basemap.convert("RGBA")
+    img.alpha_composite(rain)
+    draw = ImageDraw.Draw(img)
+    c = size / 2
+    r = max(6, size // 60)
+    draw.ellipse((c - r, c - r, c + r, c + r), fill=(220, 40, 40, 255), outline=(255, 255, 255, 255), width=max(2, r // 3))
+    try:
+        font = ImageFont.load_default(size=max(12, size // 36))
+    except TypeError:  # Pillow without FreeType sizes
+        font = ImageFont.load_default()
+    pad = max(4, size // 120)
+    box = draw.textbbox((0, 0), label, font=font)
+    h = box[3] - box[1] + 2 * pad
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(overlay).rectangle((0, size - h, size, size), fill=(255, 255, 255, 200))
+    img.alpha_composite(overlay)
+    draw = ImageDraw.Draw(img)
+    draw.text((pad, size - h + pad - box[1]), label, font=font, fill=(40, 40, 40, 255))
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, "PNG", optimize=True)
     return buf.getvalue()
 
 

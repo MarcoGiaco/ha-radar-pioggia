@@ -49,7 +49,7 @@ class RadarFramesView(HomeAssistantView):
                     {
                         "time": f.time.isoformat(),
                         "forecast": f.forecast,
-                        "url": _image_url(reg.config_entry_id, f, source, newest),
+                        "url": _image_url(reg.config_entry_id, f, source, newest, coordinator.min_dbz),
                     }
                     for f in timeline
                 ],
@@ -57,7 +57,7 @@ class RadarFramesView(HomeAssistantView):
         )
 
 
-def _image_url(entry_id: str, frame, source: str | None, newest: int) -> str:
+def _image_url(entry_id: str, frame, source: str | None, newest: int, min_dbz: float) -> str:
     """Address of one frame image.
 
     It depends only on what the image shows, so the browser keeps measured
@@ -65,6 +65,8 @@ def _image_url(entry_id: str, frame, source: str | None, newest: int) -> str:
     recomputed from every new radar image.
     """
     url = f"/api/radar_pioggia/image/{entry_id}/{int(frame.time.timestamp())}?s={source}"
+    if min_dbz:
+        url += f"&m={min_dbz:g}"
     if frame.forecast:
         url += f"&n={newest}"
     return url

@@ -23,11 +23,15 @@
         "title": "Opzioni radar pioggia",
         "data": {
           "raggio": "Raggio analizzato",
-          "preavviso": "Preavviso"
+          "preavviso": "Preavviso",
+          "distanza_arrivo": "Distanza di arrivo",
+          "nascondi_deboli": "Nascondi le eco deboli sulla mappa"
         },
         "data_description": {
-          "raggio": "Quanti km attorno al punto guardare (20–150).",
-          "preavviso": "\"Pioggia in arrivo\" si accende quando l'arrivo stimato è entro questi minuti."
+          "raggio": "Quanti km attorno al punto guardare per distanza, pioggia più forte e mappa (20–150).",
+          "preavviso": "\"Pioggia in arrivo\" si accende quando l'arrivo stimato è entro questi minuti.",
+          "distanza_arrivo": "La pioggia conta come arrivata quando è entro questi km dal punto (1–30). Vale per \"Arrivo pioggia\" e \"Pioggia in arrivo\".",
+          "nascondi_deboli": "Non colora le eco sotto i 15 dBZ (pioviggine o pioggia che non arriva a terra), nella scheda e nell'immagine Mappa radar. Non cambia avvisi e sensori."
         }
       }
     }
@@ -59,6 +63,11 @@
       },
       "temporale_vicino": {
         "name": "Temporale vicino"
+      }
+    },
+    "image": {
+      "mappa_radar": {
+        "name": "Mappa radar"
       }
     }
   }

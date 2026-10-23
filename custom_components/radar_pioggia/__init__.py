@@ -16,7 +16,7 @@ from .const import DOMAIN
 from .coordinator import RadarConfigEntry, RadarCoordinator
 from .http import RadarFramesView, RadarImageView
 
-PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.IMAGE, Platform.SENSOR]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 CARD_URL = "/radar_pioggia/radar-pioggia-card.js"
 

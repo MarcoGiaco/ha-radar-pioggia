@@ -9,7 +9,7 @@ from typing import Any
 import aiohttp
 
 from .analysis import TILE, ZOOM
-from .const import DPC_API_URL, DPC_TILE_URL, MAPS_URL, USER_AGENT
+from .const import BASEMAP_URL, DPC_API_URL, DPC_TILE_URL, MAPS_URL, USER_AGENT
 
 TIMEOUT = aiohttp.ClientTimeout(total=20)
 # RainViewer: Universal Blue colors (the only scheme the free API serves), no smoothing, snow shown apart.
@@ -83,3 +83,11 @@ class RainViewerClient(_Client):
         """One zoom-7 radar tile as PNG bytes."""
         resp = await self._get(f"{host}{path}/{TILE}/{ZOOM}/{x}/{y}/{COLOR}/{OPTIONS}.png")
         return await resp.read()
+
+
+class BasemapClient(_Client):
+    """OpenStreetMap tiles for the map picture, downloaded once per point."""
+
+    async def tile(self, z: int, x: int, y: int) -> bytes | None:
+        resp = await self._get(BASEMAP_URL.format(z=z, x=x, y=y), missing_ok=True)
+        return None if resp is None else await resp.read()

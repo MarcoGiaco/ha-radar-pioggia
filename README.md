@@ -6,7 +6,7 @@ Integrazione custom che legge il radar meteo della [Protezione Civile (Radar-DPC
 >
 > - **Radar-DPC**: mosaico radar nazionale, un fotogramma ogni 5 minuti, valori in dBZ (prodotto VMI), circa 1 km per pixel. Dati con licenza [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/): la fonte va citata.
 > - **RainViewer**: API pubblica gratuita, un fotogramma ogni 10 minuti, intensità ricostruita dai colori della mappa. Secondo i [termini di RainViewer](https://www.rainviewer.com/api.html) l'API è **solo per uso personale ed educativo**, citando RainViewer: non usare questa integrazione per scopi commerciali con RainViewer come fonte.
-> - **Mappa di sfondo** della scheda: [OpenStreetMap](https://www.openstreetmap.org/copyright), secondo la loro [policy sull'uso dei tile](https://operations.osmfoundation.org/policies/tiles/). Si può sostituire con un altro fornitore (vedi *Scheda mappa*).
+> - **Mappa di sfondo** della scheda e dell'entità *Mappa radar*: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, dati con licenza [ODbL](https://opendatacommons.org/licenses/odbl/), secondo la loro [policy sull'uso dei tile](https://operations.osmfoundation.org/policies/tiles/). Nella scheda si può sostituire con un altro fornitore (vedi *Scheda mappa*); l'immagine *Mappa radar* riporta sempre "© OpenStreetMap".
 >
 > I dati non passano da nessun server di questo progetto: ogni installazione di Home Assistant li scarica direttamente dalle fonti.
 >
@@ -16,10 +16,10 @@ Alla configurazione il punto parte dalla posizione di casa impostata in Home Ass
 
 ## Come funziona
 
-1. Ogni 5 minuti controlla se c'è un fotogramma nuovo e scarica le tessere radar attorno al punto (raggio configurabile, 60 km di default). Prova prima Radar-DPC; se non risponde o il punto è fuori copertura usa RainViewer.
+1. Controlla se c'è un fotogramma nuovo e scarica le tessere radar attorno al punto (raggio configurabile, 60 km di default, più un margine di circa 165 km: la strada che la pioggia più veloce considerata, 110 km/h, fa in 90 minuti; serve alla stima del movimento, alla previsione della mappa e al calcolo dell'arrivo; sono circa 9 tessere per fotogramma). Prova prima Radar-DPC; se non risponde o il punto è fuori copertura usa RainViewer. DPC pubblica un fotogramma ogni 5 minuti, circa 8 minuti dopo l'orario del radar: l'integrazione impara questo ritardo e, quando il fotogramma sta per uscire, controlla ogni 30 secondi, così lo usa al massimo mezzo minuto dopo la pubblicazione. Con RainViewer controlla ogni 5 minuti.
 2. Trova la pioggia più vicina, la più forte e quella sopra il punto, ignorando i pixel isolati.
-3. Confronta il fotogramma attuale con quello di 20 minuti prima per stimare direzione e velocità di spostamento.
-4. Sposta in avanti la mappa attuale a passi di 5 minuti, fino a 90, e calcola quando la pioggia arriva entro 3 km dal punto.
+3. Confronta il fotogramma attuale con quello di 20 minuti prima, su tutta l'area scaricata, per stimare direzione e velocità di spostamento: così il movimento si conosce anche quando la pioggia è ancora tutta fuori dal raggio.
+4. Sposta in avanti la mappa attuale a passi di 5 minuti, fino a 90, e calcola quando la pioggia arriva entro la *distanza di arrivo* dal punto (3 km di default).
 
 È un *nowcast* per spostamento: funziona bene con fronti e temporali che si muovono. Non può prevedere le celle che nascono sul posto, e nelle valli il radar può vedere male i rovesci piccoli.
 
@@ -29,14 +29,26 @@ Alla configurazione il punto parte dalla posizione di casa impostata in Home Ass
 |---|---|
 | Pioggia sul punto | mm/h stimati sopra il punto adesso (0 se asciutto) |
 | Distanza pioggia | km della pioggia più vicina, con direzione e intensità |
-| Arrivo pioggia | minuti all'arrivo stimato (0 se piove già, vuoto se non arriva entro 90 min) |
+| Arrivo pioggia | minuti all'arrivo stimato (0 se la pioggia è già entro la distanza di arrivo, vuoto se non arriva entro 90 min) |
 | Velocità pioggia | km/h di spostamento, con la direzione di provenienza |
 | Pioggia più forte | mm/h della cella più intensa nel raggio, con distanza e direzione |
 | Ora radar | ora del fotogramma analizzato (attributo `fonte`: Radar-DPC o RainViewer) |
 | Pioggia in arrivo | acceso quando l'arrivo stimato è entro il preavviso (45 min di default) |
 | Temporale vicino | acceso quando c'è una cella ≥ 45 dBZ entro 30 km |
+| Mappa radar | immagine PNG dell'ultimo fotogramma radar sopra la mappa, con il punto in rosso (vedi *Immagine mappa*) |
 
 Intensità da dBZ con Marshall-Palmer (Z = 200·R^1,6): 20 dBZ ≈ 0,6 mm/h, 30 ≈ 2,7, 40 ≈ 11,5, 45 ≈ 24, 50 ≈ 49.
+
+## Opzioni
+
+Da **Impostazioni → Dispositivi e servizi → Radar pioggia → Configura**:
+
+| Opzione | Default | Cosa cambia |
+|---|---|---|
+| Raggio analizzato | 60 km (20–150) | area per distanza, pioggia più forte, temporale vicino e mappa |
+| Preavviso | 45 min (15–90) | quando si accende *Pioggia in arrivo* |
+| Distanza di arrivo | 3 km (1–30) | entro quanti km dal punto la pioggia conta come arrivata, per *Arrivo pioggia* e *Pioggia in arrivo*. *Pioggia sul punto* guarda sempre i 3 km attorno al punto |
+| Nascondi le eco deboli sulla mappa | no | non colora le eco sotto i 15 dBZ (pioviggine o pioggia che evapora prima di arrivare a terra), nella scheda e nell'immagine *Mappa radar*. Sensori e avvisi non cambiano |
 
 ## Installazione
 
@@ -78,6 +90,12 @@ La mappa resta dentro l'area scaricata: non si può allontanare né spostare olt
 
 Le immagini sono preparate da Home Assistant: i tile DPC non si possono leggere direttamente dal browser. Lo sfondo della mappa è OpenStreetMap, scurito in tema scuro. Con `tile_url` si può usare un altro fornitore di tile (formato `{z}/{x}/{y}`): in quel caso metti in `tile_attribution` i crediti che il fornitore richiede e rispetta i suoi termini.
 
+## Immagine mappa
+
+L'entità *Mappa radar* (`image.radar_pioggia_casa_mappa_radar`) è una foto di circa 570×570 px: l'ultimo fotogramma radar sopra la mappa OpenStreetMap, con il punto segnato in rosso e in basso ora, fonte e crediti della mappa. Si aggiorna a ogni fotogramma nuovo. Serve soprattutto per le notifiche, ma si può mostrare anche con una normale scheda *Immagine*.
+
+La mappa di sfondo (una decina di tile OpenStreetMap) viene scaricata solo la prima volta che l'immagine viene chiesta, poi resta in memoria fino al riavvio. Se l'immagine non viene mai usata, non si scarica nulla. L'immagine col radar viene disegnata una volta per fotogramma.
+
 ## Esempio di notifica
 
 ```yaml
@@ -94,6 +112,20 @@ actions:
         🌧️ Pioggia {{ state_attr(trigger.entity_id, 'intensita') }} in arrivo da
         {{ state_attr(trigger.entity_id, 'provenienza') }}
         tra circa {{ state_attr(trigger.entity_id, 'minuti') }} minuti.
+```
+
+Con la foto della mappa, per esempio con Telegram. Home Assistant scarica l'immagine da se stesso: l'indirizzo è quello interno della tua installazione (qui `http://127.0.0.1:8123`, se non usi HTTPS), e il token nell'attributo `entity_picture` cambia da solo.
+
+```yaml
+actions:
+  - action: telegram_bot.send_photo
+    data:
+      url: >-
+        {{ 'http://127.0.0.1:8123' ~
+           state_attr('image.radar_pioggia_casa_mappa_radar', 'entity_picture') }}
+      caption: >-
+        🌧️ Pioggia in arrivo tra circa
+        {{ state_attr('binary_sensor.radar_pioggia_casa_pioggia_in_arrivo', 'minuti') }} minuti.
 ```
 
 ## Licenza
