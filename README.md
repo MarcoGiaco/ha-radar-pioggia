@@ -13,7 +13,9 @@ Oltre ai sensori, l'integrazione include:
 
 ## Installazione
 
-**Con HACS:** HACS → menu ⋮ → *Repository personalizzati* → aggiungere `https://github.com/MarcoGiaco/ha-radar-pioggia` come tipo *Integrazione*, poi installare *Radar pioggia*.
+**Con HACS (consigliato):** Radar pioggia è nel catalogo predefinito di HACS: basta aprire HACS, cercare *Radar pioggia* e installarla. In alternativa, questo pulsante apre direttamente la sua pagina in HACS:
+
+[![Apri in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=MarcoGiaco&repository=ha-radar-pioggia&category=integration)
 
 **A mano:** copiare la cartella `custom_components/radar_pioggia` in `config/custom_components/`.
 
