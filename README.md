@@ -1,114 +1,112 @@
 # Radar pioggia per Home Assistant
 
-Integrazione custom che legge il radar meteo della [Protezione Civile (Radar-DPC)](https://radar.protezionecivile.it) — con [RainViewer](https://www.rainviewer.com) come riserva fuori dall'Italia — e dice se la pioggia sta arrivando su un punto scelto (di partenza la posizione di casa impostata in Home Assistant): a che distanza è, da dove arriva, a che velocità e tra quanti minuti è prevista.
+Integrazione per Home Assistant che avvisa quando la pioggia sta per arrivare su un punto scelto, di solito la casa. Indica a che distanza è la pioggia, da dove arriva, a che velocità si muove e tra quanti minuti è attesa.
 
-> **Progetto non ufficiale**, non affiliato al Dipartimento della Protezione Civile né a RainViewer.
->
-> - **Radar-DPC**: mosaico radar nazionale, un fotogramma ogni 5 minuti, valori in dBZ (prodotto VMI), circa 1 km per pixel. Dati con licenza [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/): la fonte va citata.
-> - **RainViewer**: API pubblica gratuita, un fotogramma ogni 10 minuti, intensità ricostruita dai colori della mappa. Secondo i [termini di RainViewer](https://www.rainviewer.com/api.html) l'API è **solo per uso personale ed educativo**, citando RainViewer: non usare questa integrazione per scopi commerciali con RainViewer come fonte.
-> - **Mappa di sfondo** della scheda e dell'entità *Mappa radar*: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, dati con licenza [ODbL](https://opendatacommons.org/licenses/odbl/), secondo la loro [policy sull'uso dei tile](https://operations.osmfoundation.org/policies/tiles/). Nelle opzioni si può scegliere anche OpenTopoMap (vedi *Mappa di sfondo*): in quel caso valgono i suoi termini.
->
-> I dati non passano da nessun server di questo progetto: ogni installazione di Home Assistant li scarica direttamente dalle fonti.
->
-> Le entità riportano la fonte; l'attributo `fonte` di *Ora radar* dice quale è stata usata.
+I dati vengono dal radar meteo della [Protezione Civile (Radar-DPC)](https://radar.protezionecivile.it). Fuori dall'Italia, o quando il radar DPC non risponde, viene usato [RainViewer](https://www.rainviewer.com).
 
-Alla configurazione il punto parte dalla posizione di casa impostata in Home Assistant. Se la posizione non è stata impostata (è ancora quella predefinita), l'integrazione lo segnala e non accetta quel punto.
+Oltre ai sensori, l'integrazione include:
 
-## Come funziona
+- una **scheda mappa** con il radar dell'ultima ora e la stima della prossima;
+- un'**immagine** dell'ultimo fotogramma radar, pronta da allegare alle notifiche.
 
-1. Controlla se c'è un fotogramma nuovo e scarica le tessere radar attorno al punto (raggio configurabile, 60 km di default, più un margine di circa 165 km: la strada che la pioggia più veloce considerata, 110 km/h, fa in 90 minuti; serve alla stima del movimento, alla previsione della mappa e al calcolo dell'arrivo; sono circa 9 tessere per fotogramma). Prova prima Radar-DPC; se non risponde o il punto è fuori copertura usa RainViewer. DPC pubblica un fotogramma ogni 5 minuti, circa 8 minuti dopo l'orario del radar: l'integrazione impara questo ritardo e, quando il fotogramma sta per uscire, controlla ogni 30 secondi, così lo usa al massimo mezzo minuto dopo la pubblicazione. Con RainViewer controlla ogni 5 minuti.
-2. Trova la pioggia più vicina, la più forte e quella sopra il punto, ignorando i pixel isolati.
-3. Confronta il fotogramma attuale con quello di 20 minuti prima, su tutta l'area scaricata, per stimare direzione e velocità di spostamento: così il movimento si conosce anche quando la pioggia è ancora tutta fuori dal raggio.
-4. Sposta in avanti la mappa attuale a passi di 5 minuti, fino a 90, e calcola quando la pioggia arriva entro la *distanza di arrivo* dal punto (3 km di default).
+> **Progetto non ufficiale**, non affiliato al Dipartimento della Protezione Civile né a RainViewer. Fonti e licenze dei dati sono in fondo, in *Fonti dei dati*.
 
-È un *nowcast* per spostamento: funziona bene con fronti e temporali che si muovono. Non può prevedere le celle che nascono sul posto, e nelle valli il radar può vedere male i rovesci piccoli.
+## Installazione
+
+**Con HACS:** HACS → menu ⋮ → *Repository personalizzati* → aggiungere `https://github.com/MarcoGiaco/ha-radar-pioggia` come tipo *Integrazione*, poi installare *Radar pioggia*.
+
+**A mano:** copiare la cartella `custom_components/radar_pioggia` in `config/custom_components/`.
+
+Poi riavviare Home Assistant e aggiungere l'integrazione da **Impostazioni → Dispositivi e servizi → Aggiungi integrazione → Radar pioggia**.
+
+Durante la configurazione si sceglie un nome e il punto da sorvegliare. Il punto proposto è la posizione di casa impostata in Home Assistant. Se quella posizione è ancora quella predefinita, l'integrazione non la accetta: basta spostare il punto sulla mappa, oppure impostare la posizione in *Impostazioni → Sistema → Generale*. Si possono aggiungere più punti, uno per volta.
 
 ## Entità
 
-| Entità | Contenuto |
-|---|---|
-| Pioggia sul punto | mm/h stimati sopra il punto adesso (0 se asciutto) |
-| Distanza pioggia | km della pioggia più vicina, con direzione e intensità |
-| Arrivo pioggia | minuti all'arrivo stimato (0 se la pioggia è già entro la distanza di arrivo, vuoto se non arriva entro 90 min) |
-| Velocità pioggia | km/h di spostamento, con la direzione di provenienza |
-| Pioggia più forte | mm/h della cella più intensa nel raggio, con distanza e direzione |
-| Ora radar | ora del fotogramma analizzato (attributo `fonte`: Radar-DPC o RainViewer) |
-| Pioggia in arrivo | acceso quando l'arrivo stimato è entro il preavviso (45 min di default) |
-| Temporale vicino | acceso quando c'è una cella ≥ 45 dBZ entro 30 km |
-| Mappa radar | immagine PNG dell'ultimo fotogramma radar sopra la mappa, con il punto in rosso (vedi *Immagine mappa*) |
+Gli ID delle entità contengono il nome del punto. Per un punto chiamato "Casa": `sensor.radar_pioggia_casa_arrivo_pioggia`, `binary_sensor.radar_pioggia_casa_pioggia_in_arrivo` e così via.
 
-Intensità da dBZ con Marshall-Palmer (Z = 200·R^1,6): 20 dBZ ≈ 0,6 mm/h, 30 ≈ 2,7, 40 ≈ 11,5, 45 ≈ 24, 50 ≈ 49.
+| Entità | Cosa indica |
+|---|---|
+| Pioggia sul punto | mm/h stimati sopra il punto in questo momento (0 se asciutto) |
+| Distanza pioggia | km della pioggia più vicina, con direzione e intensità |
+| Arrivo pioggia | minuti all'arrivo stimato: 0 se la pioggia è già arrivata, vuoto se non è attesa entro 90 minuti |
+| Velocità pioggia | km/h di spostamento della pioggia e direzione di provenienza |
+| Pioggia più forte | mm/h della cella più intensa nell'area, con distanza e direzione |
+| Ora radar | ora del fotogramma analizzato; l'attributo `fonte` dice se viene da Radar-DPC o da RainViewer |
+| Pioggia in arrivo | acceso quando la pioggia è attesa entro il preavviso (45 minuti di serie) |
+| Temporale vicino | acceso quando c'è una cella forte (≥ 45 dBZ) entro 30 km |
+| Mappa radar | immagine dell'ultimo fotogramma radar sopra la mappa, con il punto in rosso |
+
+Le entità hanno attributi utili per le notifiche, per esempio `minuti`, `ora`, `intensita` (debole, moderata, forte…), `mm_h`, `provenienza` e `velocita_kmh` su *Pioggia in arrivo* e *Arrivo pioggia*.
+
+L'intensità in mm/h si ricava dai dBZ del radar con la formula di Marshall-Palmer (Z = 200·R^1,6): 20 dBZ ≈ 0,6 mm/h, 30 ≈ 2,7, 40 ≈ 11,5, 45 ≈ 24, 50 ≈ 49.
 
 ## Opzioni
 
 Da **Impostazioni → Dispositivi e servizi → Radar pioggia → Configura**:
 
-| Opzione | Default | Cosa cambia |
+| Opzione | Valore di serie | A cosa serve |
 |---|---|---|
-| Raggio analizzato | 60 km (20–150) | area per distanza, pioggia più forte, temporale vicino e mappa |
-| Preavviso | 45 min (15–90) | quando si accende *Pioggia in arrivo* |
-| Distanza di arrivo | 3 km (1–30) | entro quanti km dal punto la pioggia conta come arrivata, per *Arrivo pioggia* e *Pioggia in arrivo*. *Pioggia sul punto* guarda sempre i 3 km attorno al punto |
-| Nascondi le eco deboli sulla mappa | no | non colora le eco sotto i 15 dBZ (pioviggine o pioggia che evapora prima di arrivare a terra), nella scheda e nell'immagine *Mappa radar*. Sensori e avvisi non cambiano |
-| Mappa di sfondo | OpenStreetMap | lo sfondo dell'immagine *Mappa radar* e della scheda, vedi *Mappa di sfondo* |
+| Raggio analizzato | 60 km (20–150) | area usata per distanza, pioggia più forte, temporale vicino e mappa |
+| Preavviso | 45 min (15–90) | quanto prima dell'arrivo si accende *Pioggia in arrivo* |
+| Distanza di arrivo | 3 km (1–30) | entro quanti km dal punto la pioggia conta come arrivata (per *Arrivo pioggia* e *Pioggia in arrivo*). *Pioggia sul punto* guarda sempre i 3 km attorno al punto |
+| Nascondi le eco deboli sulla mappa | no | non colora sulla mappa le eco sotto i 15 dBZ (pioviggine, o pioggia che evapora prima di toccare terra). Sensori e avvisi non cambiano |
+| Mappa di sfondo | OpenStreetMap | sfondo della scheda e dell'immagine *Mappa radar* |
 
 ### Mappa di sfondo
 
-Nelle opzioni si sceglie lo sfondo tra:
-
 | Mappa | Fornitore | Crediti mostrati |
 |---|---|---|
-| OpenStreetMap | [OpenStreetMap](https://www.openstreetmap.org/copyright) ([policy dei tile](https://operations.osmfoundation.org/policies/tiles/)) | © OpenStreetMap |
-| Topografica | [OpenTopoMap](https://opentopomap.org/about), con i rilievi | © OpenStreetMap, SRTM · © OpenTopoMap (CC BY-SA) |
+| OpenStreetMap | [OpenStreetMap](https://www.openstreetmap.org/copyright) | © OpenStreetMap |
+| Topografica (con i rilievi) | [OpenTopoMap](https://opentopomap.org/about) | © OpenStreetMap, SRTM · © OpenTopoMap (CC BY-SA) |
 
-I crediti compaiono da soli sotto la mappa della scheda e nella didascalia dell'immagine. Una scheda con il suo `tile_url` usa invece quello (vedi *Scheda*).
-
-## Installazione
-
-**Con HACS:** HACS → menu ⋮ → *Repository personalizzati* → aggiungi `https://github.com/MarcoGiaco/ha-radar-pioggia` come tipo *Integrazione*, poi installa *Radar pioggia*.
-
-**A mano:** copia `custom_components/radar_pioggia` in `config/custom_components/`.
-
-In entrambi i casi riavvia Home Assistant, poi **Impostazioni → Dispositivi e servizi → Aggiungi integrazione → Radar pioggia**.
+I crediti compaiono da soli sotto la mappa della scheda e nella didascalia dell'immagine.
 
 ## Scheda mappa
 
-L'integrazione porta con sé una scheda (`custom:radar-pioggia-card`), caricata in automatico: l'integrazione la aggiunge da sola alle risorse delle dashboard (Impostazioni → Dashboard → Risorse) e ne aggiorna la versione. Non serve aggiungerla a mano, e quando elimini l'ultimo punto configurato la risorsa viene tolta. Se invece disinstalli solo da HACS senza prima eliminare l'integrazione, la risorsa resta e va tolta a mano. La scheda mostra:
-- il radar dell'ultima ora, un fotogramma ogni 5 minuti con DPC;
-- la stima della prossima ora, con l'ultimo fotogramma spostato secondo il movimento misurato. La stima compare solo quando c'è pioggia che si muove;
-- un cursore per scorrere il tempo e un tasto play.
+La scheda (`custom:radar-pioggia-card`) viene installata con l'integrazione e aggiunta da sola alle risorse delle dashboard: non serve registrarla a mano. Mostra:
 
-Si aggiunge da **Aggiungi scheda → Radar pioggia**: l'entità del radar viene scelta in automatico e tutte le opzioni si cambiano dall'editor visuale. In YAML:
+- il radar dell'ultima ora, un fotogramma ogni 5 minuti;
+- la stima della prossima ora, ottenuta spostando l'ultimo fotogramma secondo il movimento misurato (compare solo quando c'è pioggia in movimento);
+- un cursore per scorrere il tempo, un tasto play e un tasto per tornare sul punto.
+
+Si aggiunge da **Aggiungi scheda → Radar pioggia**: l'entità viene scelta in automatico e le opzioni si cambiano dall'editor visuale. In YAML:
 
 ```yaml
 type: custom:radar-pioggia-card
 entity: sensor.radar_pioggia_casa_ora_radar   # una qualsiasi entità del punto
 title: Radar                                  # facoltativo; senza titolo niente intestazione
 icon: mdi:radar                               # icona del titolo
-color: red                                    # facoltativo: nome di un colore del tema, "#e57373" o "var(--…)"
+color: red                                    # facoltativo: colore del tema, "#e57373" o "var(--…)"
 zoom: 8                                       # zoom iniziale
-bare: false                                   # true = senza sfondo, per metterla dentro un'altra scheda
-tile_url: https://…/{z}/{x}/{y}.png           # facoltativo: altra mappa di sfondo
+bare: false                                   # true = senza sfondo, per inserirla in un'altra scheda
+tile_url: https://…/{z}/{x}/{y}.png           # facoltativo: un'altra mappa di sfondo
 tile_attribution: "© …"                       # crediti richiesti da quella mappa
 ```
 
-Senza `color` la scheda ha lo sfondo normale del tema. Con `color` l'icona prende quel colore e lo sfondo una leggera sfumatura. Mappa, cursore e pulsanti seguono sempre il tema, chiaro o scuro. Per altri ritocchi (angoli, margini) si può usare card-mod, per esempio:
+Note:
 
-```yaml
-card_mod:
-  style: "ha-card { padding: 18px 20px !important; border-radius: 20px !important; }"
-```
+- Senza `color` la scheda ha lo sfondo normale del tema; con `color` l'icona prende quel colore e lo sfondo una leggera sfumatura. Mappa e comandi seguono il tema chiaro o scuro.
+- La mappa resta dentro l'area scaricata dal radar: non si può spostare oltre i bordi.
+- Con `tile_url` si può usare un altro fornitore di mappe solo per quella scheda: i crediti vanno messi in `tile_attribution` e vanno rispettati i termini del fornitore.
+- Per ritocchi grafici (angoli, margini) si può usare card-mod:
 
-La mappa resta dentro l'area scaricata: non si può allontanare né spostare oltre i bordi dell'immagine radar. Il pulsante con la casa la riporta sul punto.
+  ```yaml
+  card_mod:
+    style: "ha-card { padding: 18px 20px !important; border-radius: 20px !important; }"
+  ```
 
-Le immagini sono preparate da Home Assistant: i tile DPC non si possono leggere direttamente dal browser. Lo sfondo è quello scelto nelle opzioni dell'integrazione (di serie OpenStreetMap), scurito in tema scuro. Con `tile_url` una singola scheda può usare un altro fornitore (formato `{z}/{x}/{y}`): in quel caso metti in `tile_attribution` i crediti che il fornitore richiede e rispetta i suoi termini.
+- Se l'integrazione viene disinstallata da HACS senza prima eliminare i punti configurati, la scheda resta tra le risorse delle dashboard e va tolta a mano.
 
 ## Immagine mappa
 
-L'entità *Mappa radar* (`image.radar_pioggia_casa_mappa_radar`) è una foto di circa 570×570 px: l'ultimo fotogramma radar sopra la mappa di sfondo (di serie OpenStreetMap), con il punto segnato in rosso e in basso ora, fonte e crediti della mappa. Si aggiorna a ogni fotogramma nuovo. Serve soprattutto per le notifiche, ma si può mostrare anche con una normale scheda *Immagine*.
+L'entità *Mappa radar* (es. `image.radar_pioggia_casa_mappa_radar`) è un'immagine di circa 570×570 px: l'ultimo fotogramma radar sopra la mappa di sfondo, con il punto in rosso e, in basso, ora, fonte e crediti. Si aggiorna a ogni nuovo fotogramma. Serve soprattutto per allegare la mappa alle notifiche, ma si può mostrare anche con una normale scheda *Immagine*.
 
-La mappa di sfondo (una decina di tile) viene scaricata solo la prima volta che l'immagine viene chiesta, poi resta in memoria fino al riavvio. Se l'immagine non viene mai usata, non si scarica nulla. L'immagine col radar viene disegnata una volta per fotogramma.
+La mappa di sfondo viene scaricata solo la prima volta che l'immagine viene richiesta; se l'immagine non si usa, non si scarica nulla.
 
-## Esempio di notifica
+## Esempi di automazione
+
+Notifica quando la pioggia è in arrivo (sostituire `notify.telefono` con il proprio servizio di notifica):
 
 ```yaml
 triggers:
@@ -118,7 +116,7 @@ triggers:
 actions:
   - action: notify.send_message
     target:
-      entity_id: notify.telegram
+      entity_id: notify.telefono
     data:
       message: >-
         🌧️ Pioggia {{ state_attr(trigger.entity_id, 'intensita') }} in arrivo da
@@ -126,7 +124,7 @@ actions:
         tra circa {{ state_attr(trigger.entity_id, 'minuti') }} minuti.
 ```
 
-Con la foto della mappa, per esempio con Telegram. Home Assistant scarica l'immagine da se stesso: l'indirizzo è quello interno della tua installazione (qui `http://127.0.0.1:8123`, se non usi HTTPS), e il token nell'attributo `entity_picture` cambia da solo.
+Con la foto della mappa, per esempio su Telegram. Home Assistant scarica l'immagine da se stesso: l'indirizzo va adattato alla propria installazione (`http://127.0.0.1:8123` vale se HA non usa HTTPS). Il token contenuto in `entity_picture` si rinnova da solo.
 
 ```yaml
 actions:
@@ -140,6 +138,25 @@ actions:
         {{ state_attr('binary_sensor.radar_pioggia_casa_pioggia_in_arrivo', 'minuti') }} minuti.
 ```
 
+## Come funziona
+
+1. **Scarica il radar** attorno al punto. Radar-DPC pubblica un fotogramma ogni 5 minuti, circa 8 minuti dopo l'orario della misura: l'integrazione impara questo ritardo e usa ogni fotogramma entro mezzo minuto dalla pubblicazione. Con RainViewer controlla ogni 5 minuti. Oltre al raggio scelto scarica un margine più ampio, così può seguire la pioggia anche prima che entri nell'area.
+2. **Cerca la pioggia**: la più vicina, la più forte e quella sopra il punto, ignorando i pixel isolati.
+3. **Misura il movimento** confrontando il fotogramma attuale con quello di 20 minuti prima: ne ricava direzione e velocità.
+4. **Stima l'arrivo** spostando in avanti la pioggia attuale a passi di 5 minuti, fino a 90 minuti, finché non arriva entro la *distanza di arrivo* dal punto.
+
+### Limiti
+
+La stima segue la pioggia che già esiste e si sposta: funziona bene con fronti e temporali in movimento, ma non può prevedere le celle che nascono sul posto. Nelle valli, il radar può vedere male i rovesci piccoli.
+
+## Fonti dei dati
+
+- **Radar-DPC** (Protezione Civile): mosaico radar nazionale, un fotogramma ogni 5 minuti, risoluzione di circa 1 km. Dati con licenza [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/): la fonte va citata.
+- **RainViewer**: API pubblica gratuita, un fotogramma ogni 10 minuti; l'intensità è ricavata dai colori della mappa. Secondo i [termini di RainViewer](https://www.rainviewer.com/api.html) l'API è **solo per uso personale ed educativo**, citando RainViewer: non va usata per scopi commerciali.
+- **Mappe di sfondo**: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, licenza [ODbL](https://opendatacommons.org/licenses/odbl/), secondo la [policy sull'uso dei tile](https://operations.osmfoundation.org/policies/tiles/). Con la mappa topografica valgono anche i termini di [OpenTopoMap](https://opentopomap.org/about).
+
+I dati non passano da server di questo progetto: ogni installazione di Home Assistant li scarica direttamente dalle fonti.
+
 ## Licenza
 
-Il codice è MIT, vedi [LICENSE](LICENSE). I dati radar e le mappe restano soggetti alle licenze e ai termini delle rispettive fonti, elencati in cima.
+Il codice è distribuito con licenza MIT, vedi [LICENSE](LICENSE). I dati radar e le mappe restano soggetti alle licenze e ai termini delle rispettive fonti, elencati in *Fonti dei dati*.
