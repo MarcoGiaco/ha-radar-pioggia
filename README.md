@@ -1,6 +1,6 @@
 # Radar pioggia per Home Assistant
 
-Integrazione custom che legge il radar meteo della [Protezione Civile (Radar-DPC)](https://radar.protezionecivile.it) — con [RainViewer](https://www.rainviewer.com) come riserva fuori dall'Italia — e dice se la pioggia sta arrivando su un punto (di default casa tua): a che distanza è, da dove arriva, a che velocità e tra quanti minuti è prevista.
+Integrazione custom che legge il radar meteo della [Protezione Civile (Radar-DPC)](https://radar.protezionecivile.it) — con [RainViewer](https://www.rainviewer.com) come riserva fuori dall'Italia — e dice se la pioggia sta arrivando su un punto scelto (di partenza la posizione di casa impostata in Home Assistant): a che distanza è, da dove arriva, a che velocità e tra quanti minuti è prevista.
 
 > **Progetto non ufficiale**, non affiliato al Dipartimento della Protezione Civile né a RainViewer.
 >
