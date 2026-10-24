@@ -159,4 +159,4 @@ I dati non passano da server di questo progetto: ogni installazione di Home Assi
 
 ## Licenza
 
-Il codice è distribuito con licenza MIT, vedi [LICENSE](LICENSE). I dati radar e le mappe restano soggetti alle licenze e ai termini delle rispettive fonti, elencati in *Fonti dei dati*.
+Il codice è distribuito con licenza MIT, vedi [LICENSE](LICENSE). La scheda della mappa include [Leaflet](https://leafletjs.com) 1.9.4 (licenza BSD-2-Clause, vedi [frontend/leaflet/LICENSE](custom_components/radar_pioggia/frontend/leaflet/LICENSE)), servito da Home Assistant stesso e non da internet. I dati radar e le mappe restano soggetti alle licenze e ai termini delle rispettive fonti, elencati in *Fonti dei dati*.

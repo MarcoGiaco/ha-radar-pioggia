@@ -13,7 +13,8 @@
 //   tile_url: https://…/{z}/{x}/{y}.png   # other basemap; if left out, the one
 //   tile_attribution: "© …"              # set in the integration options (OpenStreetMap by default)
 
-const LEAFLET = "https://unpkg.com/leaflet@1.9.4/dist/";
+// Leaflet 1.9.4, shipped with the integration (frontend/leaflet, with its licence).
+const LEAFLET = "/radar_pioggia/leaflet/";
 // Basemap when the integration does not say one: OpenStreetMap tiles. In the
 // dark theme the tiles are inverted with a CSS filter.
 const BASEMAP = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -51,8 +52,22 @@ function loadLeaflet() {
 const hhmm = (d) => d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
 
 // "red" or "primary" (as given by the colour picker) become theme variables;
-// "#e57373", "rgb(…)" and "var(…)" are used as they are.
-const cssColor = (c) => (!c || c === "none" ? null : /^(#|rgb|hsl|var\()/.test(c) ? c : `var(--${c}-color)`);
+// "#e57373", "rgb(…)", "hsl(…)" and "var(--…)" are used as they are. Anything
+// else is ignored.
+const COLOR_AS_IS = [
+  /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i,
+  /^(?:rgb|hsl)a?\([0-9.,%\s/]+\)$/i,
+  /^var\(--[a-z0-9-]+\)$/i,
+];
+function cssColor(c) {
+  if (typeof c !== "string" || !c || c === "none") return null;
+  if (COLOR_AS_IS.some((re) => re.test(c))) return c;
+  return /^[a-z][a-z0-9-]*$/i.test(c) ? `var(--${c}-color)` : null;
+}
+
+// Plain text for Leaflet's attribution control, which shows it as HTML.
+const escapeHtml = (s) =>
+  String(s).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
 
 // The radar time entity of the first point, for a new card.
 function defaultEntity(hass) {
@@ -131,17 +146,17 @@ class RadarPioggiaCard extends HTMLElement {
     const root = this.shadowRoot || this.attachShadow({ mode: "open" });
     const { bare, title, icon } = this._config;
     const color = cssColor(this._config.color);
-    const tint = color
-      ? `background: linear-gradient(160deg, color-mix(in srgb, ${color} 16%, var(--card-background-color)) 0%, var(--card-background-color) 75%);`
-      : "";
+    // Static markup only: config values are set below as attributes, text and
+    // CSS properties, never as HTML.
     root.innerHTML = `
       <link rel="stylesheet" href="${LEAFLET}leaflet.css">
       <style>
         :host { display: block; height: 100%; }
-        ha-card { height: 100%; box-sizing: border-box; display: flex; flex-direction: column;
-                  ${bare ? "background: none; box-shadow: none; border: none; padding: 0;" : `padding: 16px; ${tint}`} }
+        ha-card { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; padding: 16px; }
+        ha-card.tint { background: linear-gradient(160deg, color-mix(in srgb, var(--rp-color) 16%, var(--card-background-color)) 0%, var(--card-background-color) 75%); }
+        ha-card.bare { background: none; box-shadow: none; border: none; padding: 0; }
         .title { display: flex; align-items: center; font-size: 15px; font-weight: 500; letter-spacing: 0.02em; color: var(--secondary-text-color); margin-bottom: 12px; }
-        .title ha-icon { --mdc-icon-size: 20px; color: ${color || "var(--primary-color)"}; margin-right: 8px; }
+        .title ha-icon { --mdc-icon-size: 20px; color: var(--rp-color, var(--primary-color)); margin-right: 8px; }
         .wrap { flex: 1; display: flex; flex-direction: column; min-height: 300px; }
         #map { flex: 1; min-height: 240px; border-radius: 14px; overflow: hidden; z-index: 0; background: var(--secondary-background-color); }
         .leaflet-container { font-family: inherit; }
@@ -169,7 +184,6 @@ class RadarPioggiaCard extends HTMLElement {
         .mapbox { position: relative; flex: 1; display: flex; flex-direction: column; min-height: 0; }
       </style>
       <ha-card>
-        ${title ? `<div class="title"><ha-icon icon="${icon}"></ha-icon><span></span></div>` : ""}
         <div class="wrap">
           <div class="mapbox"><div id="map"></div><div class="msg">Carico il radar…</div></div>
           <div class="controls">
@@ -187,7 +201,20 @@ class RadarPioggiaCard extends HTMLElement {
       range: root.querySelector("input"),
       when: root.querySelector(".when"),
     };
-    if (title) root.querySelector(".title span").textContent = title;
+    const card = root.querySelector("ha-card");
+    card.classList.toggle("bare", !!bare);
+    card.classList.toggle("tint", !bare && !!color);
+    if (color) card.style.setProperty("--rp-color", color);
+    if (title) {
+      const head = document.createElement("div");
+      head.className = "title";
+      const ic = document.createElement("ha-icon");
+      ic.setAttribute("icon", String(icon));
+      const text = document.createElement("span");
+      text.textContent = title;
+      head.append(ic, text);
+      card.prepend(head);
+    }
     this._el.btn.addEventListener("click", () => (this._playing ? this._stop() : this._play()));
     this._el.range.addEventListener("input", () => { this._stop(); this._show(Number(this._el.range.value)); });
     this._resize = new ResizeObserver(() => {
@@ -243,7 +270,7 @@ class RadarPioggiaCard extends HTMLElement {
     this._overlay = L.imageOverlay("data:image/gif;base64,R0lGODlhAQABAAAAACw=", data.bounds, {
       opacity: 0.85,
       interactive: false,
-      attribution: data.attribution,
+      attribution: escapeHtml(data.attribution),
     }).addTo(this._map);
   }
 
@@ -269,10 +296,14 @@ class RadarPioggiaCard extends HTMLElement {
     this._el.map.classList.toggle("dark", dark);
     if (this._base) return;
     // The card's own tile_url, else the integration's map, else OpenStreetMap
-    // (with the linked credit Leaflet shows for it).
+    // (with the linked credit Leaflet shows for it). Other credits are plain text.
     const { tile_url, tile_attribution } = this._config;
     const url = tile_url || this._basemap?.url || BASEMAP;
-    const attribution = tile_url ? tile_attribution || "" : url === BASEMAP ? MAP_ATTRIBUTION : this._basemap?.attribution || "";
+    const attribution = tile_url
+      ? escapeHtml(tile_attribution || "")
+      : url === BASEMAP
+        ? MAP_ATTRIBUTION
+        : escapeHtml(this._basemap?.attribution || "");
     this._base = window.L.tileLayer(url, { maxZoom: 12, attribution }).addTo(this._map);
     this._base.bringToBack();
   }

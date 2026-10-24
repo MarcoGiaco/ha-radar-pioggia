@@ -21,14 +21,20 @@ from .http import RadarFramesView, RadarImageView
 PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.IMAGE, Platform.SENSOR]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 CARD_URL = "/radar_pioggia/radar-pioggia-card.js"
+# Leaflet (map library of the card) ships with the integration, never from a CDN.
+LEAFLET_URL = "/radar_pioggia/leaflet"
 
 _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Serve the map card and its data."""
+    frontend = Path(__file__).parent / "frontend"
     await hass.http.async_register_static_paths(
-        [StaticPathConfig(CARD_URL, str(Path(__file__).parent / "frontend" / "radar-pioggia-card.js"), False)]
+        [
+            StaticPathConfig(CARD_URL, str(frontend / "radar-pioggia-card.js"), False),
+            StaticPathConfig(LEAFLET_URL, str(frontend / "leaflet"), False),
+        ]
     )
     url = await _async_card_url(hass)
     if not await _async_register_resource(hass, url):
