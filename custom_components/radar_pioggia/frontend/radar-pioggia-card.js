@@ -304,7 +304,14 @@ class RadarPioggiaCard extends HTMLElement {
       : url === BASEMAP
         ? MAP_ATTRIBUTION
         : escapeHtml(this._basemap?.attribution || "");
-    this._base = window.L.tileLayer(url, { maxZoom: 12, attribution }).addTo(this._map);
+    // Home Assistant's page sets referrer "same-origin", so tile requests would
+    // leave without a Referer and OpenStreetMap serves its "Access blocked"
+    // image instead (its tile policy requires one). Send the page's origin.
+    this._base = window.L.tileLayer(url, {
+      maxZoom: 12,
+      attribution,
+      referrerPolicy: "strict-origin-when-cross-origin",
+    }).addTo(this._map);
     this._base.bringToBack();
   }
 
